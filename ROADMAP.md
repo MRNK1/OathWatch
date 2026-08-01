@@ -8,8 +8,8 @@ Phase 3 ✅ Setup System
 Phase 3.5
 Documentation & Release Infrastructure
 
-Phase 4
-Election Board
+Phase 4 ✅ Election Board
+Phase 4.5 ✅ Documentation (this update)
 
 Phase 5
 Public API
@@ -54,3 +54,13 @@ v1.0
 - Duplicate-board prevention; deleted board/channel recovery; permission failures surface clearly.
 - Automatic config migration (`board_message_id` → `boards`) — no manual steps.
 - `/unsetup` removes a server's configuration and boards.
+
+### Phase 4 — Election System
+
+- Election data parsed into world state: year, all candidates (name, votes, vote percentage, perks), sorted by highest vote percentage.
+- Election Board embed: status ("Election in progress · Year N" or "No election is currently running"), leading candidate, one field per candidate with vote counts and perks, §-code stripping, field-limit truncation, footer with Last Updated + refresh interval.
+- Plugs into the existing board registry via a single `register_board("election", …)` call — no setup-logic changes.
+- `/setup` now takes `mayor_board` / `election_board` options; existing Mayor-only setups are untouched and keep working.
+- Validation hardened: accepts election-only responses (mayor absent on election day), coerces malformed candidates (non-dicts dropped, missing votes/percent → "N/A"), never crashes.
+- `apply_election_data` now reports *any* world-state change so boards refresh when votes move, not just on mayor changes.
+- Shared render helpers (`strip_format_codes`, `truncate`, `perks_text`, refresh notice) extracted into `formatting.py` — both boards render from one source of truth.

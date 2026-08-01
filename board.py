@@ -1,49 +1,15 @@
 """Mayor Board rendering and change-notification formatting.
 
 All user-facing display text is produced here so formatting rules (Minecraft
-format-code stripping, spacing, timezone labels) live in one place.
+format-code stripping, spacing, timezone labels) live in one place. Shared
+embed helpers (strip_format_codes, truncate, perks_text) come from
+formatting.py so every board renders consistently.
 """
-import re
-
 import discord
 
 from board_registry import register_board
+from formatting import REFRESH_NOTICE, perks_text, strip_format_codes, truncate
 from world_state import WORLD_STATE
-
-REFRESH_NOTICE = "Data refreshes every hour and may be delayed by up to one hour."
-
-FIELD_LIMIT = 1024
-
-
-def strip_format_codes(text) -> str:
-    """Remove Minecraft formatting codes (e.g. §6, §x hex) from a string."""
-    return re.sub(r"§.", "", str(text)).replace("§", "")
-
-
-def _truncate(text, limit=FIELD_LIMIT) -> str:
-    """Clip text so an embed field value stays within Discord's limit."""
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1].rstrip() + "…"
-
-
-def _perks_text(perks) -> str:
-    """Render a perk list into field text with formatting codes stripped."""
-    if not perks:
-        return "No perks this term."
-
-    lines = []
-    for perk in perks:
-        if not isinstance(perk, dict):
-            continue
-        name = strip_format_codes(perk.get("name", "Unknown"))
-        description = strip_format_codes(perk.get("description", ""))
-        if description:
-            lines.append(f"**{name}** — {description}")
-        else:
-            lines.append(f"**{name}**")
-
-    return "\n\n".join(lines) if lines else "No perks this term."
 
 
 def build_mayor_board_embed() -> discord.Embed:
@@ -69,13 +35,13 @@ def build_mayor_board_embed() -> discord.Embed:
     )
     embed.add_field(
         name="Mayor Perks",
-        value=_truncate(_perks_text(mayor.get("perks", []))),
+        value=truncate(perks_text(mayor.get("perks", []))),
         inline=False,
     )
     if minister:
         embed.add_field(
             name="Minister Perks",
-            value=_truncate(_perks_text(minister.get("perks", []))),
+            value=truncate(perks_text(minister.get("perks", []))),
             inline=False,
         )
 

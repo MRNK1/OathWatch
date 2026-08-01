@@ -112,6 +112,8 @@ async def testchannel(interaction: discord.Interaction):
 async def setup(
     interaction: discord.Interaction,
     channel: discord.TextChannel,
+    mayor_board: bool = True,
+    election_board: bool = True,
     notify: bool = True,
 ):
     if channel.guild.id != interaction.guild.id:
@@ -120,11 +122,25 @@ async def setup(
         )
         return
 
+    # The board choices live here (the UI), not in run_setup: setup stays
+    # board-agnostic and simply places whatever keys it is given.
+    board_keys = []
+    if mayor_board:
+        board_keys.append("mayor")
+    if election_board:
+        board_keys.append("election")
+    if not board_keys:
+        await interaction.response.send_message(
+            "❌ Select at least one board to set up."
+        )
+        return
+
     await interaction.response.defer()
 
     summary = await run_setup(
         str(interaction.guild.id),
         channel,
+        board_keys=board_keys,
         notify=notify,
     )
 

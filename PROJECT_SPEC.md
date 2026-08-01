@@ -6,6 +6,7 @@ OathWatch is a production-quality Discord bot that tracks Hypixel SkyBlock world
 ## Current Features
 
 - Mayor Board
+- Election Board
 - Minister Support
 - Setup Command
 - Hourly Updates
@@ -16,7 +17,7 @@ OathWatch is a production-quality Discord bot that tracks Hypixel SkyBlock world
 ## Planned Features
 
 High Priority
-- Election Board
+- (none — Election Board shipped in Phase 4)
 
 Medium Priority
 - Bazaar Board
@@ -35,13 +36,19 @@ hypixel_api.py
 Handles all API requests. Sync by design; callers run it in a worker thread.
 
 board.py
-Mayor Board embed rendering, Minecraft format-code stripping, and change-notification formatting. Registers the "mayor" board type.
+Mayor Board embed rendering and change-notification formatting. Registers the "mayor" board type.
+
+election.py
+Election Board embed rendering: election status, all candidates sorted by vote percentage, vote counts, candidate perks, and the current leading candidate. Registers the "election" board type. Renders from the normalized election data in world_state.py.
+
+formatting.py
+Shared embed-formatting helpers used by every board renderer: Minecraft format-code stripping (strip_format_codes), Discord field-limit clipping (truncate), perk-list rendering (perks_text), and the shared refresh notice. Keeps board rendering consistent without duplicating logic.
 
 board_registry.py
-Board-type registry. Registering a board (key, name, embed builder) makes it usable by the setup system and the hourly update loop — the core setup logic never changes. Future boards (Election, Bazaar) plug in here.
+Board-type registry. Registering a board (key, name, embed builder) makes it usable by the setup system and the hourly update loop — the core setup logic never changes. Future boards (Bazaar, Event) plug in here.
 
 setup.py
-Board-agnostic setup orchestration: permission checks, board placement (create/update/recreate), board refresh with self-healing, and config persistence. One /setup command replaces the old /setchannel + /board flow.
+Board-agnostic setup orchestration: permission checks, board placement (create/update/recreate), board refresh with self-healing, and config persistence. One /setup command replaces the old /setchannel + /board flow. The /setup command passes the admin's board choices (mayor/election) as board keys — setup itself never hard-codes which boards exist.
 
 storage_utils.py
 Shared JSON persistence helpers: data directory creation and atomic writes.
@@ -53,7 +60,7 @@ world_storage.py
 World state persistence.
 
 world_state.py
-Runtime cache, election-data application, response validation, and state normalisation.
+Runtime cache, election-data application, response validation, and state normalisation. Holds the mayor, minister, and ongoing election (year + candidates sorted by vote percentage); validates API responses and coerces malformed payloads so boards never crash.
 
 # Coding Standards
 
@@ -66,9 +73,14 @@ Runtime cache, election-data application, response validation, and state normali
 
 Current Phase
 
+Completed
 1. Polish Mayor Board
 2. Setup System
-3. GitHub README
-4. Website
-5. Election Board
-6. Bazaar
+3. Election Board
+
+Upcoming
+- GitHub README
+- Website
+- Bazaar
+- Public API
+- Dashboard

@@ -9,6 +9,7 @@ import logging
 import discord
 
 import board  # noqa: F401  (registers the Mayor Board on import)
+import election  # noqa: F401  (registers the Election Board on import)
 from board_registry import UnknownBoardError, all_boards, get_board
 from storage import load_config, save_config
 
