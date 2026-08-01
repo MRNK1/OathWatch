@@ -1,14 +1,15 @@
-import json
+import os
 
-WORLD_FILE = "data/world_state.json"
+from storage_utils import DATA_DIR, read_json, write_json_atomic
+
+WORLD_FILE = os.path.join(DATA_DIR, "world_state.json")
+
 
 def load_world_state():
-    try:
-        with open(WORLD_FILE, "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return None
+    """Load persisted world state, or None if it has never been saved."""
+    return read_json(WORLD_FILE, None)
+
 
 def save_world_state(data):
-    with open(WORLD_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+    """Persist world state atomically."""
+    write_json_atomic(WORLD_FILE, data)
