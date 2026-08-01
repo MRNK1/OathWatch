@@ -1,0 +1,6 @@
+# Development and CI tooling (not required to run the bot).
+-r requirements.txt
+pytest>=7.0
+pytest-asyncio>=0.21
+ruff>=0.4
+mypy>=1.8

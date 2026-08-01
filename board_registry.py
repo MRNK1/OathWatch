@@ -4,8 +4,8 @@ A board is anything that renders world data into a Discord embed. Registering
 a new board type is the only step needed to make it usable by the setup system
 and the hourly update loop — the core setup logic never changes.
 """
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import discord
 
@@ -22,7 +22,7 @@ class BoardType:
     build_embed: Callable[[], discord.Embed]
 
 
-_REGISTRY = {}
+_REGISTRY: dict = {}
 
 
 def register_board(key: str, name: str, build_embed: Callable[[], discord.Embed]) -> None:

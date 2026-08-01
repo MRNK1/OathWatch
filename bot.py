@@ -1,12 +1,14 @@
 import asyncio
 import logging
 import os
+import sys
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
+import storage_utils
 from board import build_mayor_board_embed, format_mayor_change_message
 from hypixel_api import get_election_data
 from setup import SetupError, place_board, run_setup, run_unsetup, update_guild_boards
@@ -19,20 +21,13 @@ from world_state import (
 )
 from world_storage import load_world_state, save_world_state
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
+__version__ = "0.5.0"
+
 logger = logging.getLogger(__name__)
 
-saved_state = load_world_state()
-
-if saved_state:
-    WORLD_STATE.update(normalize_world_state(saved_state))
-
-load_dotenv()
-
-TOKEN = os.getenv("DISCORD_TOKEN")
+# Every variable required to run the bot, kept in one place so startup
+# validation and this list never drift apart.
+REQUIRED_ENV = ("DISCORD_TOKEN", "HYPIXEL_API_KEY")
 
 intents = discord.Intents.default()
 
@@ -41,9 +36,17 @@ bot = commands.Bot(
     intents=intents
 )
 
+
+def _get_guild(interaction: discord.Interaction) -> discord.Guild:
+    """Resolve a command's guild, rejecting direct-message usage."""
+    guild = interaction.guild
+    if guild is None:
+        raise SetupError("This command can only be used inside a server.")
+    return guild
+
 @bot.event
 async def on_ready():
-    logger.info(f"{bot.user} is online!")
+    logger.info("%s is online in %d guild(s)", bot.user, len(bot.guilds))
 
     try:
         synced = await bot.tree.sync()
@@ -53,6 +56,33 @@ async def on_ready():
 
     if not mayor_update_loop.is_running():
         mayor_update_loop.start()
+
+@bot.event
+async def on_guild_remove(guild: discord.Guild):
+    """Remove configuration for a guild the bot just left.
+
+    World state is global (not per-guild) and is deliberately left intact.
+    Only the departed guild's config entry is removed, so active guilds are
+    never touched. Failures are logged so the removal can never crash the
+    event loop.
+    """
+    guild_id = str(guild.id)
+    data = load_config()
+
+    if guild_id not in data.get("guilds", {}):
+        return
+
+    data["guilds"].pop(guild_id, None)
+
+    try:
+        save_config(data)
+        logger.info(
+            "Removed configuration for guild %s (%s)", guild_id, guild.name
+        )
+    except Exception as e:
+        logger.error(
+            "Failed to remove configuration for guild %s: %s", guild_id, e
+        )
 
 @bot.tree.command(name="status", description="Check bot status")
 async def status(interaction: discord.Interaction):
@@ -68,7 +98,7 @@ async def setchannel(
 ):
     data = load_config()
 
-    guild_id = str(interaction.guild.id)
+    guild_id = str(_get_guild(interaction).id)
 
     guild_data = data["guilds"].setdefault(guild_id, {})
     guild_data["channel_id"] = channel.id
@@ -84,7 +114,7 @@ async def setchannel(
 async def testchannel(interaction: discord.Interaction):
     data = load_config()
 
-    guild_id = str(interaction.guild.id)
+    guild_id = str(_get_guild(interaction).id)
 
     if guild_id not in data.get("guilds", {}):
         await interaction.response.send_message(
@@ -95,7 +125,7 @@ async def testchannel(interaction: discord.Interaction):
     channel_id = data["guilds"][guild_id]["channel_id"]
     channel = bot.get_channel(channel_id)
 
-    if channel is None:
+    if not isinstance(channel, discord.TextChannel):
         await interaction.response.send_message(
             "❌ Channel not found."
         )
@@ -116,7 +146,7 @@ async def setup(
     election_board: bool = True,
     notify: bool = True,
 ):
-    if channel.guild.id != interaction.guild.id:
+    if channel.guild.id != _get_guild(interaction).id:
         await interaction.response.send_message(
             "❌ The channel must be in this server."
         )
@@ -138,7 +168,7 @@ async def setup(
     await interaction.response.defer()
 
     summary = await run_setup(
-        str(interaction.guild.id),
+        str(_get_guild(interaction).id),
         channel,
         board_keys=board_keys,
         notify=notify,
@@ -149,10 +179,11 @@ async def setup(
 @bot.tree.command(name="unsetup", description="Remove this server's configuration")
 @app_commands.default_permissions(administrator=True)
 async def unsetup(interaction: discord.Interaction):
+    guild = _get_guild(interaction)
     summary = await run_unsetup(
         bot,
-        str(interaction.guild.id),
-        interaction.guild.name,
+        str(guild.id),
+        guild.name,
     )
     await interaction.response.send_message(summary)
 
@@ -163,14 +194,14 @@ async def board(interaction: discord.Interaction):
 
     data = load_config()
 
-    guild_id = str(interaction.guild.id)
+    guild_id = str(_get_guild(interaction).id)
 
     guild_data = data.get("guilds", {}).get(guild_id)
 
     if guild_data:
         channel = bot.get_channel(guild_data.get("channel_id"))
 
-        if channel and channel.id == interaction.channel.id:
+        if isinstance(channel, discord.TextChannel) and channel.id == interaction.channel_id:
             # In the configured update channel: manage the tracked Mayor
             # Board in place so /board never creates duplicates.
             stored_id = None
@@ -178,7 +209,7 @@ async def board(interaction: discord.Interaction):
             if isinstance(board_info, dict):
                 stored_id = board_info.get("message_id")
 
-            new_id, _ = await place_board(interaction.channel, embed, stored_id)
+            new_id, _ = await place_board(channel, embed, stored_id)
 
             if new_id != stored_id:
                 guild_data.setdefault("boards", {})["mayor"] = {
@@ -260,7 +291,7 @@ async def send_mayor_change_notification(message):
             guild_data.get("channel_id")
         )
 
-        if not channel:
+        if not isinstance(channel, discord.TextChannel):
             logger.warning(
                 f"Channel not found for guild {guild_id}"
             )
@@ -321,7 +352,7 @@ async def mayor_update_loop():
         except Exception as e:
             logger.error(f"Failed to persist world state: {e}")
 
-@mayor_update_loop.error
+@mayor_update_loop.error  # type: ignore[type-var]
 async def on_mayor_update_loop_error(error):
     """Last-resort safety net so the hourly loop can never die silently."""
     logger.error(
@@ -332,8 +363,67 @@ async def on_mayor_update_loop_error(error):
     mayor_update_loop.restart()
 
 
-if not TOKEN:
-    logger.critical("DISCORD_TOKEN is not set. Check your .env file.")
-    raise RuntimeError("DISCORD_TOKEN is not set. Check your .env file.")
+def get_missing_env() -> list:
+    """Names of required environment variables that are unset or blank."""
+    return [name for name in REQUIRED_ENV if not os.getenv(name)]
 
-bot.run(TOKEN)
+
+def _load_saved_state() -> None:
+    """Merge persisted world state into the runtime cache if present."""
+    saved = load_world_state()
+    if saved:
+        WORLD_STATE.update(normalize_world_state(saved))
+
+
+def main() -> int:
+    """Configure logging, validate the environment, and run the bot.
+
+    Returns an exit code so a fresh deployment can fail fast with a clear
+    message instead of crashing mid-import.
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    load_dotenv()
+
+    missing = get_missing_env()
+    if missing:
+        logger.critical(
+            "Missing required environment variable(s): %s",
+            ", ".join(missing),
+        )
+        logger.critical(
+            "Copy .env.example to .env and fill in every value, then restart."
+        )
+        return 1
+
+    _load_saved_state()
+
+    # Present — get_missing_env() returned above already guaranteed this.
+    token = os.environ["DISCORD_TOKEN"]
+
+    logger.info("Starting OathWatch %s", __version__)
+    logger.info("Data directory: %s", storage_utils.DATA_DIR)
+    logger.info(
+        "Configured guilds: %d",
+        len(load_config().get("guilds", {})),
+    )
+    logger.info(
+        "World state: mayor=%s, last_updated=%s",
+        WORLD_STATE["mayor"]["name"],
+        WORLD_STATE["last_updated"],
+    )
+
+    try:
+        bot.run(token)
+    except KeyboardInterrupt:
+        logger.info("Shutting down.")
+    except Exception as e:
+        logger.critical("Fatal error while running: %s", e)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

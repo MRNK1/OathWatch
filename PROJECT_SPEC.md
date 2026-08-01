@@ -30,7 +30,7 @@ Low Priority
 # Architecture
 
 bot.py
-Main bot entry point. Offloads blocking API calls off the event loop via asyncio.to_thread.
+Main bot entry point. `main()` configures logging, validates the environment, loads persisted state, and runs the bot under an `if __name__ == "__main__"` guard. Owns slash commands, the hourly update loop, and lifecycle cleanup (`on_guild_remove`). Offloads blocking API calls off the event loop via asyncio.to_thread.
 
 hypixel_api.py
 Handles all API requests. Sync by design; callers run it in a worker thread.
@@ -62,6 +62,13 @@ World state persistence.
 world_state.py
 Runtime cache, election-data application, response validation, and state normalisation. Holds the mayor, minister, and ongoing election (year + candidates sorted by vote percentage); validates API responses and coerces malformed payloads so boards never crash.
 
+# Tooling
+
+- pyproject.toml — Ruff (lint), MyPy (type check), and Pytest (test) configuration.
+- tests/ — automated suite covering storage, config migration, election parsing, the board registry, the setup system, world-state updates, formatting, startup validation, and lifecycle cleanup. All tests redirect persistence to a temp directory and never touch real project data.
+- .github/workflows/ci.yml — runs lint, type check, and tests on every push/PR.
+- requirements-dev.txt — development dependencies (pytest, ruff, mypy).
+
 # Coding Standards
 
 - Modular code
@@ -77,9 +84,9 @@ Completed
 1. Polish Mayor Board
 2. Setup System
 3. Election Board
+4. Release Infrastructure (README, .env.example, LICENSE, startup/lifecycle hardening, tooling, tests, CI)
 
 Upcoming
-- GitHub README
 - Website
 - Bazaar
 - Public API

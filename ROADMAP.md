@@ -4,26 +4,22 @@ Phased plan derived from PROJECT_SPEC.md. Status is tracked here as each phase c
 Phase 1 ✅ Production Stability
 Phase 2 ✅ Mayor Board
 Phase 3 ✅ Setup System
-
-Phase 3.5
-Documentation & Release Infrastructure
-
 Phase 4 ✅ Election Board
-Phase 4.5 ✅ Documentation (this update)
-
-Phase 5
-Public API
+Phase 5 ✅ Release Infrastructure (docs, startup, lifecycle, tooling, tests, CI)
 
 Phase 6
-Website
+Public API
 
 Phase 7
-Bazaar
+Website
 
 Phase 8
-Release Candidate
+Bazaar
 
 Phase 9
+Release Candidate
+
+Phase 10
 v1.0
 ## Completed Phases
 
@@ -64,3 +60,12 @@ v1.0
 - Validation hardened: accepts election-only responses (mayor absent on election day), coerces malformed candidates (non-dicts dropped, missing votes/percent → "N/A"), never crashes.
 - `apply_election_data` now reports *any* world-state change so boards refresh when votes move, not just on mayor changes.
 - Shared render helpers (`strip_format_codes`, `truncate`, `perks_text`, refresh notice) extracted into `formatting.py` — both boards render from one source of truth.
+
+### Phase 5 — Release Infrastructure
+
+- Repository: `README.md` (overview, features, screenshots placeholders, install/config/env/commands, architecture, structure, roadmap, dev setup, contributing, license, credits), `.env.example`, MIT `LICENSE`.
+- Startup: `main()` entry point with `if __name__ == "__main__"` guard; validates every required env var (`DISCORD_TOKEN`, `HYPIXEL_API_KEY`) with clear error messages; startup logging (version, data dir, guild count, world state); `bot.py` is importable without env/run side effects.
+- Lifecycle: `on_guild_remove` removes a departed guild's config only — world state is preserved, active guilds are never touched, failures are logged safely.
+- Tooling: `pyproject.toml` (Ruff + MyPy + Pytest config), `requirements-dev.txt`, GitHub Actions CI (lint → type check → tests on Python 3.10 & 3.12).
+- Tests: permanent `tests/` suite (47 tests) covering storage, config migration, election parsing, board registry, setup system, world-state updates, formatting, startup validation, and guild-removal lifecycle — all isolated from real `data/`.
+- Type safety: `WORLD_STATE`/registry annotations, narrowed text-channel types, `raise … from` chaining, fixed Hypixel header typing.

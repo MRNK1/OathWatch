@@ -52,17 +52,45 @@ async def place_board(channel: discord.TextChannel, embed, stored_id):
         except discord.NotFound:
             logger.info(f"Board message {stored_id} was deleted; recreating it")
         except discord.Forbidden:
-            raise SetupError(f"I can no longer access the board in {channel.mention}.")
+            raise SetupError(
+                f"I can no longer access the board in {channel.mention}."
+            ) from None
         except discord.HTTPException as e:
-            raise SetupError(f"Failed to update the board in {channel.mention}: {e}")
+            raise SetupError(
+                f"Failed to update the board in {channel.mention}: {e}"
+            ) from e
 
     try:
         message = await channel.send(embed=embed)
         return message.id, True
     except discord.Forbidden:
-        raise SetupError(f"I need **Send Messages** permission in {channel.mention}.")
+        raise SetupError(
+            f"I need **Send Messages** permission in {channel.mention}."
+        ) from None
     except discord.HTTPException as e:
-        raise SetupError(f"Failed to post the board in {channel.mention}: {e}")
+        raise SetupError(
+            f"Failed to post the board in {channel.mention}: {e}"
+        ) from e
+
+
+async def _delete_orphaned_board(channel, message_id) -> None:
+    """Best-effort delete a tracked board message living in another channel.
+
+    Never raises: an already-gone message (NotFound) is expected, and
+    Forbidden/HTTP failures are logged so the caller can drop the stale
+    reference and continue placing the board in its new channel.
+    """
+    try:
+        message = await channel.fetch_message(message_id)
+        await message.delete()
+        logger.info(
+            f"Deleted orphaned board message {message_id} from "
+            f"{channel.mention}"
+        )
+    except discord.NotFound:
+        logger.info(f"Orphaned board message {message_id} was already deleted")
+    except (discord.Forbidden, discord.HTTPException) as e:
+        logger.error(f"Failed to delete orphaned board message {message_id}: {e}")
 
 
 async def run_setup(
@@ -88,6 +116,7 @@ async def run_setup(
 
     data = load_config()
     guild_data = data["guilds"].setdefault(guild_id, {})
+    old_channel_id = guild_data.get("channel_id")
     guild_data["channel_id"] = channel.id
     guild_data["notify_enabled"] = bool(notify)
     boards = guild_data.setdefault("boards", {})
@@ -100,6 +129,24 @@ async def run_setup(
         info = boards.get(key)
         if isinstance(info, dict):
             stored_id = info.get("message_id")
+
+        # A board tracked in a different channel would be orphaned by this
+        # setup. Remove it so a guild never ends up with two boards of the
+        # same type. Failures are logged, never raised.
+        if stored_id and old_channel_id and old_channel_id != channel.id:
+            old_channel = channel.guild.get_channel(old_channel_id)
+            if isinstance(old_channel, discord.TextChannel):
+                await _delete_orphaned_board(old_channel, stored_id)
+            else:
+                logger.info(
+                    f"Old channel {old_channel_id} no longer exists; "
+                    f"dropping stale board {stored_id}"
+                )
+            # The stored reference belonged to the old channel; clear it so
+            # a later failure never leaves a dangling pointer.
+            boards.pop(key, None)
+            stored_id = None
+            save_config(data)
 
         embed = board_type.build_embed()
         message_id, created = await place_board(channel, embed, stored_id)
@@ -131,7 +178,9 @@ async def run_unsetup(bot: discord.Client, guild_id: str, guild_name: str) -> st
     channel = None
     channel_id = guild_data.get("channel_id")
     if channel_id:
-        channel = bot.get_channel(channel_id)
+        candidate = bot.get_channel(channel_id)
+        if isinstance(candidate, discord.TextChannel):
+            channel = candidate
 
     deleted = []
     for board_info in (guild_data.get("boards") or {}).values():
@@ -165,7 +214,7 @@ async def update_guild_boards(bot: discord.Client):
             guild_data.get("channel_id")
         )
 
-        if not channel:
+        if not isinstance(channel, discord.TextChannel):
             logger.warning(
                 f"Channel not found for guild {guild_id}"
             )

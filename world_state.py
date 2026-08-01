@@ -6,7 +6,7 @@ earlier versions keep working.
 """
 from datetime import datetime, timezone
 
-WORLD_STATE = {
+WORLD_STATE: dict = {
     "mayor": {"name": "Unknown", "perks": []},
     "minister": None,  # {"name": ..., "perks": [...]} or None when absent
     "election": {
@@ -104,6 +104,20 @@ def _coerce_election(election) -> dict:
     }
 
 
+def _get_active_election(data) -> dict | None:
+    """Return the active election block from a Hypixel response.
+
+    Prefers ``data["current"]`` (current API layout) and falls back to
+    ``data["election"]`` for older response formats. The mayor block may
+    carry its own ``election`` field, but that is the *previous* election
+    and must never be treated as active.
+    """
+    election = data.get("current")
+    if not isinstance(election, dict):
+        election = data.get("election")
+    return election if isinstance(election, dict) else None
+
+
 def is_election_data_valid(data) -> bool:
     """True if data looks like a usable Hypixel election response.
 
@@ -113,9 +127,9 @@ def is_election_data_valid(data) -> bool:
     """
     if not isinstance(data, dict):
         return False
-    election = data.get("election")
+    election = _get_active_election(data)
     has_election = (
-        isinstance(election, dict)
+        election is not None
         and isinstance(election.get("candidates"), list)
     )
     return isinstance(data.get("mayor"), dict) or has_election
@@ -149,8 +163,7 @@ def apply_election_data(data: dict) -> bool:
 
         changed = WORLD_STATE["mayor"]["name"] != old_mayor
 
-    election = data.get("election")
-    new_election = _coerce_election(election)
+    new_election = _coerce_election(_get_active_election(data))
     if new_election != WORLD_STATE["election"]:
         changed = True
     WORLD_STATE["election"] = new_election

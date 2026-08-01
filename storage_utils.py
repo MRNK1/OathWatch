@@ -19,7 +19,7 @@ def ensure_data_dir():
 def read_json(path, default):
     """Load JSON from path, returning default if the file is missing."""
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
         return default

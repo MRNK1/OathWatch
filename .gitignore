@@ -8,3 +8,8 @@ __pycache__/
 
 data/config.json
 data/world_state.json
+
+# Dev tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/

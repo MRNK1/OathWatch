@@ -29,11 +29,10 @@ def get_election_data():
     transient failures (network errors, rate limits, server errors).
     Raises the last exception if all attempts fail.
     """
-    headers = {
-        "API-Key": API_KEY
-    }
+    # The API key is optional for public resources but included when set.
+    headers = {"API-Key": API_KEY} if API_KEY else None
 
-    last_error = None
+    last_error: Exception | None = None
 
     for attempt in range(MAX_RETRIES):
         try:
