@@ -131,13 +131,14 @@ async def on_ready():
         logger.error("Failed to sync owner commands: %s", e)
         await reporting.report_error("Failed to sync owner commands", e)
 
-    if reporting.is_restart():
-        await reporting.send_status("🔄 Bot Restarted")
+    # Distinguish a fresh start (🟢), a process restart (🔄), and a gateway
+    # reconnect within the same process (🔁) — a reconnect must never be
+    # reported as a restart.
+    kind = await reporting.report_startup()
+    if kind == "reconnect":
+        await reporting.send_log(f"🔁 OathWatch v{__version__} reconnected")
     else:
-        await reporting.send_status("🟢 Bot Started")
-        reporting.mark_started()
-
-    await reporting.send_log(f"📦 OathWatch v{__version__} started")
+        await reporting.send_log(f"📦 OathWatch v{__version__} started")
 
     if not mayor_update_loop.is_running():
         mayor_update_loop.start()

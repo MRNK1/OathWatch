@@ -1,6 +1,6 @@
 """OathWatch — a Discord bot tracking Hypixel SkyBlock world state."""
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 # Importing the package registers every board type (board_registry). Boards
 # are imported here — not by setup — so registration is guaranteed as soon as

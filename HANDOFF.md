@@ -3,7 +3,7 @@
 **Author:** Lead engineer handoff
 **Date:** 2026-08-02
 **Target reader:** A senior developer taking over the project with **no prior context and without reading git history**.
-**Version described:** 1.1.0
+**Version described:** 1.1.1
 **Contract:** Every major change from project inception through the current state is documented below. Nothing is omitted or simplified. This document describes the code as it exists today; it is informational and is **not** a commit.
 
 ---
@@ -18,7 +18,7 @@ The project evolved from a single-file prototype into a **20-module, fully-packa
 - **Reliability engineering:** crash-safe atomic JSON writes, automatic legacy-schema migration, a rolling config backup, self-healing board recreation, consecutive-failure stale-board cleanup, an hourly-loop crash handler that restarts the loop, a global command error handler, and a dedicated error-reporting channel — all so a transient failure can never kill the process or the loop, and a gone-due-to-deletion board stops being logged forever.
 - **Operations:** a guild-scoped, owner-only `/owner` command group (status/refresh/shutdown/health/stats/version/announce + whitelist/blacklist/announcement-history), three optional reporting channels (status/log/error) that follow strict content contracts, slow-refresh detection (>10 s → one log warning), and per-variable environment validation at startup.
 - **Security model:** all allow/deny decisions for guilds funnel through one module (`access_control.py`); blocked guilds are silently **disabled** (never left, no data modified); all owner commands are guild-scoped so they can never sync into a public server; every non-owner caller and every non-owner button click is denied ephemerally.
-- **Quality gate:** 231 automated tests (pytest, green), a clean Ruff linter pass, a clean MyPy type-check pass, and a GitHub Actions CI matrix across Python 3.10 and 3.12. The suite is fully isolated from real `data/` (uses temp directories).
+- **Quality gate:** 241 automated tests (pytest, green), a clean Ruff linter pass, a clean MyPy type-check pass, and a GitHub Actions CI matrix across Python 3.10 and 3.12. The suite is fully isolated from real `data/` (uses temp directories).
 
 **Bottom line (see §19 for the full verdict):** the codebase is coherent, backward-compatible, well-tested, and **production-ready for its documented single-owner scope**. The only surviving caveats are intentional single-owner hardcodes, an external-API coupling, and a deliberately narrow set of boards (Mayor + Election) — none of which blocks deployment.
 
@@ -108,7 +108,7 @@ This is the complete history of how OathWatch reached its current form. Each ver
 - A recovering board resets its counter and logs a one-time `✅ Board Recovered`.
 - `board_health.py` isolates the counter + cleanup/recovery formatters; `BoardPermanentError` in `setup.py` distinguishes an irrecoverable board from transient failures.
 
-### Final Production Polish (current "Unreleased" work, included in 1.1.0 as shipped)
+### Final Production Polish (shipped in v1.1.1)
 - **`/owner health`** — embed with an overall Green/Yellow/Red level and per-subsystem status (Discord API/latency, background loop, Hypixel/refresh, configuration, world state, reporting channels, access control, last/next refresh, memory).
 - **`/owner stats`** — version, uptime, guild/board/refresh metrics from a central `runtime.py`.
 - **`/owner version`** — version, git commit, Python, discord.py, platform, process start/uptime.
@@ -120,7 +120,16 @@ This is the complete history of how OathWatch reached its current form. Each ver
 - **Announcements** — `/owner announce` with an interactive Confirm/Cancel preview, per-type embed colours, optional `@here`/`@everyone` ping, and an ephemeral delivery summary; failures reported to the error channel once and never sent to users.
 - **Announcement history** — `data/announcement_history.json` (auto-created, capped at 20, newest first, sequential `ANN-XXXX` ids); `/owner announcement history|resend|delete|clear` (clear requires explicit confirmation; corrupt files quarantined to `*.corrupted.json` and reset with an error-channel log).
 - `runtime.py` (central metrics) and `announcements.py` (broadcast + history + views).
-- 63 new tests (health/stats/version gating, announcement delivery, history ids/cap/corruption, preview/clear views, slow-refresh, runtime metrics, env validation).
+- 63 new tests (health/stats/version gating, announcement delivery/skip/failure, history ids/cap/corruption, preview/clear views, slow-refresh, runtime metrics, env validation).
+
+### v1.1.1 — Maintenance Release
+- **Startup notification fix** — `on_ready` re-fires on a gateway reconnect within the same process; the bot previously reported 🔄 *Bot Restarted* whenever the persisted `.started` marker existed, so a routine reconnect looked like a restart. Lifecycle reporting now flows through `reporting.report_startup()`, which classifies and sends one of three status markers, and the start marker is written exactly once (on the first ever run):
+  - 🟢 *Bot Started* — fresh start, no marker.
+  - 🔄 *Bot Restarted* — a process relaunch with a previous run's marker.
+  - 🔁 *Bot Reconnected* — a gateway reconnect within the same process (never re-marks, never reports a restart).
+  - The startup/version log line is lifecycle-aware (`📦 … started` / `🔁 … reconnected`).
+- **Documentation & versioning** — version bumped to 1.1.1; CHANGELOG/ROADMAP/README/PROJECT_SPEC/HANDOFF synchronized; the post-v1.1.0 "Unreleased" work was promoted into a proper shipped release (the sections above are now part of v1.1.1, not v1.1.0).
+- 4 new regression tests covering the fresh/restart/reconnect classification.
 
 ---
 
@@ -183,7 +192,7 @@ There are **20 application modules** below `oathwatch/`. For each: module purpos
 
 ### 4.1 `oathwatch/__init__.py`
 - **Purpose:** Python package marker and version/registration hub.
-- **Public:** `__version__ = "1.1.0"`.
+- **Public:** `__version__ = "1.1.1"`.
 - **Behaviour:** imports `board` and `election` (with `noqa: F401`) so their module-scope `register_board(...)` calls run on package import, no matter how the package is reached (bot, `python -m`, tests).
 - **Consumed by:** every module that reports `__version__`.
 - **Quirk:** importing `oathwatch` **registers boards** — a side effect. Tests rely on this.
@@ -207,7 +216,7 @@ There are **20 application modules** below `oathwatch/`. For each: module purpos
   - `class OathWatchBot(commands.Bot)` — overrides `close()` to call `reporting.send_shutdown_status()` (🔴) before the real close.
   - `bot` (module instance) with `command_prefix="!"`, `intents`, and `tree_cls=OathWatchTree`.
   - `reporting.configure(bot)` and `bot.tree.add_command(owner.owner_group)` run at import.
-  - `on_ready()` — logs online, `sync`s global commands, `sync(guild=owner.OWNER_GUILD)` separately for owner commands, sends startup status (🟢 or 🔄), logs a version line, and starts `mayor_update_loop`.
+  - `on_ready()` — logs online, `sync`s global commands, `sync(guild=owner.OWNER_GUILD)` separately for owner commands, sends the lifecycle status marker (🟢 fresh / 🔄 restart / 🔁 reconnect) via `reporting.report_startup()`, logs a lifecycle-aware version line, and starts `mayor_update_loop`.
   - `on_guild_remove(guild)` — removes the departed guild's config only; never touches the global world state.
   - `on_error(event, *_args, **_kwargs)` — reports application-level event exceptions.
   - Commands: `status`, `testchannel`, `setchannel`, `setup`, `unsetup`, `board`, `checkmayor` (see §6).
@@ -346,7 +355,7 @@ There are **20 application modules** below `oathwatch/`. For each: module purpos
   - `configure(bot)` (once).
   - `send_status(message)`, `send_log(message)`.
   - `report_error(title, exc=None)` — supports an exception or a `sys.exc_info()` tuple; a code block with the traceback; clipped to fit one message.
-  - `is_restart() -> bool`, `mark_started()`, `send_shutdown_status()` (once-guarded).
+  - `is_restart() -> bool`, `mark_started()`, `async report_startup() -> str` (sends the 🟢/🔄/🔁 marker and returns the lifecycle kind: fresh / restart / reconnect), `send_shutdown_status()` (once-guarded).
 - **Notes:** every send is best-effort with `_bot is None`/missing channel/send failure handled; never raises. The status/log/error contracts are described fully in §8.
 
 ### 4.19 `oathwatch/runtime.py`
@@ -455,7 +464,7 @@ A list (newest first), capped at 20, each entry:
   "ping_mode": "No Ping",
   "timestamp": <unix>,
   "delivered_servers": [ ... ], "skipped_servers": [ ... ], "failed_servers": [ ... ],
-  "owner_id": <int>, "bot_version": "1.1.0"
+  "owner_id": <int>, "bot_version": "1.1.1"
 }
 ```
 On load, if the file is corrupt it is **renamed to `announcement_history.corrupted.json`** and a fresh one starts; the reset is reported to the error channel.
@@ -537,9 +546,10 @@ Owner commands are scoped by `guild_ids=[OWNER_GUILD_ID]` on the group (and ther
 Everything emitted to the three optional channels goes through `reporting.py`. The three channels have **strict, non-overlapping contracts** (documented in `.env.example` and `reporting.py`'s docstring and enforced by tests). If an optional channel is unset/missing/a-send-fails, reporting **degrades silently to console logging and never raises**.
 
 ### 8.1 Status channel (`BOT_STATUS_CHANNEL_ID`)
-**What it receives — only these three markers:**
+**What it receives — only these four markers:**
 - 🟢 `Bot Started` — the first launch after a fresh `data/` (no `.started` marker).
-- 🔄 `Bot Restarted` — any later launch (marker present).
+- 🔄 `Bot Restarted` — a process relaunch with a previous run's marker present.
+- 🔁 `Bot Reconnected` — a gateway reconnect within the same process (a later `on_ready`; never re-marks startup).
 - 🔴 `Bot Shutdown` — sent once on any clean close (command or Ctrl+C) via the `OathWatchBot.close` override; the once-only guard (`_shutdown_reported`) prevents duplicates.
 
 **What must NEVER be sent there:** operational logs, error tracebacks, announcements, board summaries, or anything else.
@@ -549,7 +559,7 @@ Everything emitted to the three optional channels goes through `reporting.py`. T
 - One summary per refresh (hourly or manual): `🔄 Hourly refresh: <summary>` / `🛠️ Manual refresh: <summary>` — exactly one per cycle, never one per guild.
 - Setup/unsetup/setchannel config changes.
 - `⚙️` guild-left config removal.
-- Version line at startup (`📦 OathWatch v1.1.0 started`).
+- Lifecycle-aware version line at startup — `📦 OathWatch v1.1.1 started` on a fresh start/restart and `🔁 OathWatch v1.1.1 reconnected` on a gateway reconnect.
 - ⚠️ Slow-refresh detected (duration, average, guild count, timestamp).
 - Access-control changes (whitelist/blacklist enable/add/remove with reason/owner/timestamp).
 - **Board lifecycle**: a single `🧹 Board Cleanup` when a stale board is removed and a single `✅ Board Recovered` on recovery (one per occurrence).
@@ -688,7 +698,7 @@ Announcements are owner-initiated, user-facing broadcasts to each server's **ann
 ## 13. Testing
 
 ### 13.1 Suite summary
-- **231 test cases**, all **green** (`pytest`). Additionally `ruff check .` is clean and `mypy .` is clean.
+- **241 test cases**, all **green** (`pytest`). Additionally `ruff check .` is clean and `mypy .` is clean.
 - **Isolation:** every test that touches persistence uses the `isolated_storage` fixture (conftest) which repoints `DATA_DIR`, `CONFIG_FILE`, `BACKUP_FILE`, `WORLD_FILE`, `ACCESS_FILE`, `HISTORY_FILE`, `CORRUPTED_FILE` to a per-test temp dir. The real `data/` is never read or modified by tests.
 - **Metrics hygiene:** an autouse `_reset_runtime` clears `runtime` counters; an autouse `_reset_reporting_state` resets the once-only shutdown guard.
 
@@ -713,7 +723,7 @@ Fake Discord objects that mirror the library API closely (production-identical `
 | `test_owner.py` | Guild-scoping/registration, owner-permission gate, botstatus/refresh/shutdown, startup reporting, hourly-loop logging, whitelist/blacklist commands, command gate, blocked-guild feature skips. |
 | `test_owner_health.py` | health/stats/version embeds + GREEN/YELLOW/ RED logic + owner gating. |
 | `test_refresh.py` | Slow-refresh detection branches; refresh-error recording. |
-| `test_reporting.py` | Status/log/error channel sends, degraded channels, start marker, shutdown once-guard. |
+| `test_reporting.py` | Status/log/error channel sends, degraded channels, start marker, fresh/restart/reconnect lifecycle, shutdown once-guard. |
 | `test_runtime.py` | Refresh metrics, uptime, version info, memory. |
 | `test_setup.py` | run_setup placement/move/repeat, permission errors, update_board self-heal, stale-board cleanup lifecycle, unsetup. |
 | `test_storage.py` | Atomic persistence, no tmp leftovers, legacy migration, failure-counter persistence, backup creation. |
@@ -891,7 +901,7 @@ A systematic audit with the requested lens. Result: **no blocking defects; sever
 - No end-to-end "boot the real client" test (would need a token) — covered by mock-based tests.
 
 ### 17.16 Doc / version inconsistencies
-- `__version__ = "1.1.0"` in `__init__.py` matches README/ROADMAP/CHANGELOG. Naming is consistent across config/env/docs. CI runs 3.10 + 3.12, while the local environment is 3.14 (fine).
+- `__version__ = "1.1.1"` in `__init__.py` matches README/ROADMAP/CHANGELOG. Naming is consistent across config/docs. CI runs 3.10 + 3.12, while the local environment is 3.14 (fine).
 
 ### 17.17 Concurrency saves in the event loop
 - Writes happen in awaited sequence and only from the loop; `asyncio.to_thread` is used for the network call only, not for writes.
@@ -907,7 +917,7 @@ Use this every release.
 1. **Code gate**
    - [ ] `ruff check .` clean.
    - [ ] `mypy .` clean.
-   - [ ] `pytest` → **231 passed** (or green on your change).
+   - [ ] `pytest` → **241 passed** (or green on your change).
    - [ ] No `print()` debugging left; use `logging`.
 2. **Schema/data compat**
    - [ ] Verify any persisted file format change has a `normalize*`/migration path and that callers that read it tolerate missing/None.
@@ -966,4 +976,4 @@ Use this every release.
 
 ---
 
-*End of handoff. Version 1.1.0. This document was written to inform a handover and was **not committed**.*
+*End of handoff. Version 1.1.1. This document was written to inform a handover and was **not committed**.*

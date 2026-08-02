@@ -18,6 +18,8 @@ Milestone ✅ Stale-board cleanup (deleted-message self-healing preserved; delet
 
 Milestone ✅ Final production polish (`/owner health`, `stats`, `version`; slow-refresh detection; per-variable startup validation; `config.backup.json`; shared embed footer/colour scheme; `/setchannel` re-added as the announcement channel; `/owner announce` + announcement history with Confirm/Cancel previews)
 
+Milestone ✅ v1.1.1 — Maintenance release (startup notification fix: fresh / reconnect / restart distinguished; documentation + changelog polish)
+
 ## Final Production Polish
 
 - **`/owner health`** — subsystem health embed with an overall Green/Yellow/Red level driven by live state (Discord API + latency, background loop, Hypixel/refresh, configuration, world state, reporting channels, access control, last/next refresh, memory). Ephemeral, owner-guild-scoped.
@@ -33,20 +35,42 @@ Milestone ✅ Final production polish (`/owner health`, `stats`, `version`; slow
 - `runtime.py` (central metrics) and `announcements.py` (broadcast + history + views).
 - Tests: 63 new.
 
-Phase 7
-Public API
+## Upcoming Releases
 
-Phase 8
-Website
+### v1.2 — Quality-of-life improvements
+- **`/diagnose`** — a guided troubleshooting command that walks the owner through setup, channels, permissions, API access, and board health in one place.
+- **Better setup validation** — clearer, earlier feedback on invalid `/setup` choices and channel types.
+- **Improved diagnostics** — richer context in health/error reporting so a problem points at its cause faster.
+- **Better status reporting** — more informative status outputs and lifecycle messaging.
 
-Phase 9
-Bazaar
+### v1.3 — Market update
+- **Hypixel Bazaar cache** — a live Bazaar snapshot refreshed on a **30-second** cadence.
+- **Bazaar commands** — query prices and moving price points on demand.
+- **Market tools** — flip/item tracking helpers on top of the cached data.
 
-Phase 10
-Release Candidate
+### v1.4 — Multi-server architecture
+- **Provider system** — a clean seam that lets the bot back onto multiple game servers, not just Hypixel.
+- **CraftersMC support** — a second provider implemented on the same interface.
+- **Default game selection per Discord server** — each server picks which game it tracks.
+- **Unified commands** — one command surface works across all providers.
 
-Phase 11
-v1.0
+### v1.5 — Verification system
+- **Automatic verification where supported** — linking a player account automatically where the game allows it.
+- **Manual verification requests** — a fallback flow for servers/providers without auto-verification.
+- **Optional verification** — never forced; unverified users keep existing functionality.
+
+### v1.6 — Experimental OathWatch Guilds
+- **Guild creation** and **guild management**.
+- **Guild net worth**, **guild statistics**, and **guild leaderboards**.
+- **Note:** these are unofficial, **community-managed** guilds until supported by official APIs — clearly labelled as such in-app.
+
+## Future
+
+- **Verified guild migration** — move community guilds to officially verified records once supported APIs become available.
+- **Website**.
+- **Historical market data**.
+- **Support additional SkyBlock servers**.
+
 ## Completed Phases
 
 ### Phase 1 — Production Stability

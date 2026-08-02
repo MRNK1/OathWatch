@@ -98,6 +98,49 @@ class TestStartMarker:
         assert reporting.is_restart() is True
 
 
+class TestStartupLifecycle:
+    """Fresh start vs process restart vs gateway reconnect reporting."""
+
+    async def test_fresh_start_sends_started_and_marks(
+        self, isolated_storage, mock_reporting_channels
+    ):
+        assert await reporting.report_startup() == "fresh"
+        channel = mock_reporting_channels.channels[1001]
+        assert _contents(channel) == ["🟢 Bot Started"]
+        # The marker is written so the next process launch reports a restart.
+        assert reporting.is_restart() is True
+
+    async def test_restart_sends_restarted(
+        self, isolated_storage, mock_reporting_channels
+    ):
+        reporting.mark_started()
+        assert await reporting.report_startup() == "restart"
+        channel = mock_reporting_channels.channels[1001]
+        assert _contents(channel) == ["🔄 Bot Restarted"]
+
+    async def test_reconnect_sends_reconnected_not_restarted(
+        self, isolated_storage, mock_reporting_channels
+    ):
+        # First on_ready in the process: marker present -> restart.
+        reporting.mark_started()
+        assert await reporting.report_startup() == "restart"
+        # Gateway reconnect fires on_ready again in the same process: this
+        # must be reported as a reconnect, never as a second restart.
+        assert await reporting.report_startup() == "reconnect"
+        channel = mock_reporting_channels.channels[1001]
+        assert _contents(channel) == ["🔄 Bot Restarted", "🔁 Bot Reconnected"]
+
+    async def test_fresh_start_then_reconnect(
+        self, isolated_storage, mock_reporting_channels
+    ):
+        # Even when the marker was just written by the fresh start, the next
+        # on_ready in the same process is a reconnect, not a restart.
+        assert await reporting.report_startup() == "fresh"
+        assert await reporting.report_startup() == "reconnect"
+        channel = mock_reporting_channels.channels[1001]
+        assert _contents(channel) == ["🟢 Bot Started", "🔁 Bot Reconnected"]
+
+
 class TestShutdownStatus:
     async def test_shutdown_status_sent_once(self, mock_reporting_channels):
         await reporting.send_shutdown_status()

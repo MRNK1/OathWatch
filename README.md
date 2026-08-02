@@ -83,7 +83,7 @@ The `data/` directory (config and world state) is created automatically on first
 | ------------------------- | -------- | -------------------------------------------------------------------------------------------- |
 | `DISCORD_TOKEN`           | ✅       | Discord bot token from [Discord Developer Portal](https://discord.com/developers).           |
 | `HYPIXEL_API_KEY`         | ✅       | Hypixel API key from [developer.hypixel.net](https://developer.hypixel.net) (`/api` in-game). |
-| `BOT_STATUS_CHANNEL_ID`   | —        | Status channel: 🟢/🔄 startup markers and 🔴 shutdown only.                                    |
+| `BOT_STATUS_CHANNEL_ID`   | —        | Status channel: 🟢/🔄/🔁 startup + reconnect markers and 🔴 shutdown only.                   |
 | `BOT_LOG_CHANNEL_ID`      | —        | Log channel: one operational summary per refresh cycle, setup/config changes, version info.   |
 | `BOT_ERROR_CHANNEL_ID`    | —        | Error channel: failures with tracebacks in code blocks.                                       |
 
@@ -176,7 +176,8 @@ See [ROADMAP.md](ROADMAP.md) for the full phase tracker. In short:
 - ✅ v1.1.0: owner system & reporting (`/owner botstatus|refresh|shutdown`, status/log/error channels)
 - ✅ Stale-board cleanup: deleted-message self-healing preserved; deleted channels auto-clean after 3 consecutive permanent failures
 - ✅ Final production polish: `/owner health|stats|version`, `/owner announce` + history, slow-refresh detection, per-variable env validation, config backup, shared embed polish, `/setchannel` as the announcement channel
-- 🔜 Public API, Website, Bazaar board, Release Candidate, v1.0
+- ✅ v1.1.1: maintenance release — startup notification fix (fresh / reconnect / restart now distinguished), documentation + changelog polish
+- 🔜 v1.2 quality-of-life (`/diagnose`, better setup validation & diagnostics), v1.3 market & Bazaar (30s cache, Bazaar commands, market tools), v1.4 multi-server architecture (provider system, CraftersMC, default game per server), v1.5 verification, v1.6 experimental guilds (community-managed until official APIs), then verified-guild migration / website / historical market data / more servers
 
 ## Development setup
 

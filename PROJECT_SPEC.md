@@ -91,7 +91,7 @@ oathwatch/announcements.py
 Announcement broadcasting and history. send_announcement delivers a composed embed to every configured announcement channel and returns an AnnouncementResult (checked/delivered/skipped/failed); announcement_embed applies per-type colours. History persists to data/announcement_history.json (auto-created, capped at 20, newest first, sequential ANN-XXXX ids; corrupt files are quarantined to *.corrupted.json and reset). AnnouncementPreviewView and HistoryClearView provide the interactive Confirm/Cancel flows.
 
 oathwatch/reporting.py
-Reusable status/log/error channel reporting. Reads BOT_STATUS_CHANNEL_ID / BOT_LOG_CHANNEL_ID / BOT_ERROR_CHANNEL_ID from .env (all optional); degrades to console logging and never raises. Owns the 🟢/🔄 start marker and the once-only 🔴 shutdown guard.
+Reusable status/log/error channel reporting. Reads BOT_STATUS_CHANNEL_ID / BOT_LOG_CHANNEL_ID / BOT_ERROR_CHANNEL_ID from .env (all optional); degrades to console logging and never raises. Owns the 🟢/🔄/🔁 startup and reconnect markers (fresh start / process restart / gateway reconnect) and the once-only 🔴 shutdown guard.
 
 oathwatch/refresh.py
 Shared refresh pipeline (fetch → validate → apply → persist → refresh boards → announce mayor change) used by both the hourly loop and /owner refresh, so the two never drift apart. Returns a RefreshResult whose one-line summary becomes exactly one log-channel message per cycle. Board refreshes and change notifications skip blocked guilds.
@@ -125,9 +125,12 @@ Completed
 5. Owner System & Reporting (owner-only /owner commands; status/log/error channels)
 6. Guild Access Control (guild whitelist/blacklist; blocked guilds are disabled, never left)
 7. Final Production Polish (/owner health|stats|version, announcements + history, slow-refresh detection, per-variable env validation, config backup, shared embed polish, /setchannel as announcement channel)
+8. v1.1.1 — Maintenance release (startup notification fix: fresh/reconnect/restart distinguished; docs + changelog polish)
 
 Upcoming
-- Website
-- Bazaar
-- Public API
-- Dashboard
+- v1.2: Quality-of-life — `/diagnose`, better setup validation, improved diagnostics, better status reporting.
+- v1.3: Market update — Hypixel Bazaar cache (30-second refresh), Bazaar commands, market tools.
+- v1.4: Multi-server architecture — provider system, CraftersMC support, default game selection per Discord server, unified commands.
+- v1.5: Verification system — automatic verification where supported, manual verification requests, optional verification.
+- v1.6: Experimental OathWatch Guilds — creation/management, net worth, stats, leaderboards; community-managed until official APIs.
+- Future: verified guild migration, Website, historical market data, more SkyBlock servers.

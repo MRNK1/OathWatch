@@ -51,8 +51,9 @@ def reset_world_state():
 
 @pytest.fixture(autouse=True)
 def _reset_reporting_state():
-    """Keep the once-only shutdown guard from leaking between tests."""
+    """Keep the once-only shutdown/reconnect guards from leaking between tests."""
     reporting._shutdown_reported = False
+    reporting._ready_reported = False
     yield
 
 

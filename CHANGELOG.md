@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v1.1.1
+
+Maintenance release: promotes the post-v1.1.0 production polish (previously tracked as "Unreleased") into a shipped release, fixes the startup notification mislabeling, and synchronizes all documentation.
 
 ### Added
 
@@ -25,8 +27,8 @@
 - **Startup env validation** — every environment variable (required + optional reporting channels) is checked and logged with a ✅/⚠ per variable; the bot still starts on non-fatal (optional) gaps.
 - **Configuration backup** — before each `config.json` write, the previous config is saved to `config.backup.json` (one rolling backup, atomic).
 - **Shared embed polish** — `OathWatch v<version>` footer on every embed and a consistent colour scheme.
+- **Reconnect detection** — a third startup marker, 🔁 *Bot Reconnected*. `on_ready` fires again whenever Discord's gateway reconnects within the same process; the bot now reports a reconnect honestly instead of repeating the restart marker. A fresh first run still reports 🟢 *Bot Started*, and a deliberate process relaunch (a prior run's marker present) still reports 🔄 *Bot Restarted*.
 - `oathwatch/runtime.py` — central runtime stats (start time, refresh counters, versions, platform, memory) shared by health/stats/version and slow-refresh detection; `oathwatch/announcements.py` — broadcast + history + preview/confirm views.
-- Tests: 63 new (health/stats/version embeds and gating, announcement delivery/skip/failure, history ids/cap/corruption, preview and clear views, slow-refresh detection, runtime metrics, per-variable env validation, `/setchannel`).
 
 ### Changed
 
@@ -35,6 +37,41 @@
 - Config normalization preserves each board's `failures` counter and the guild's `announcement_channel_id` across loads (malformed values are dropped).
 - `save_config` now writes a one-for-one `config.backup.json` before every write.
 - Every embed now carries the shared `OathWatch v<version>` footer and a consistent colour scheme.
+- Startup lifecycle reporting funnels through a single `reporting.report_startup()` classification (fresh / restart / reconnect). The start marker is written exactly once — on the first ever run — and reconnects neither re-write it nor re-report a restart. The startup log line now says "started" or "reconnected" to match the status marker.
+
+### Fixed
+
+- **Startup notification bug** — after a normal connection, a gateway reconnect re-fires `on_ready` in the same process and the bot reported 🔄 *Bot Restarted* even though no restart happened, producing a spurious, confusing status message. Reconnects are now reported as 🔁 *Bot Reconnected* and no longer masquerade as restarts. Fresh launches (🟢) and genuine process restarts (🔄) are unchanged, so existing behaviour is fully preserved.
+
+### Reliability
+
+- **Stale-board cleanup** makes permanent channel loss self-resolving: instead of failing and logging every hour forever, a dead board is removed from config after 3 consecutive permanent failures, while a recovering board resets its counter — operators stop chasing phantom board errors, and transient failures (rate limits, timeouts, network blips) can never trigger a cleanup.
+- **Slow-refresh detection** surfaces performance regressions as a single log-channel warning instead of silent degradation.
+- **Configuration backup** guarantees a recoverable previous configuration before every `config.json` save.
+- **Reconnect classification** removes a source of false status spam on flaky connections and keeps the status channel honest.
+
+### Logging
+
+- One-time, bounded logging replaces repeated per-hour failure spam: `🧹 Board Cleanup` (final removal), `✅ Board Recovered` (counter reset), `⚠️ Slow refresh detected` (per occurrence), and a ✅/⚠ per-variable startup validation report.
+- The startup/version log line is lifecycle-aware — `📦 … started` on a fresh start or restart and `🔁 … reconnected` on a gateway reconnect — so the log channel never claims a restart that did not happen.
+
+### Tests
+
+- 67 new test cases: health/stats/version embeds and gating, announcement delivery/skip/failure, history ids/cap/corruption, preview and clear views, slow-refresh detection, runtime metrics, per-variable env validation, `/setchannel`, and the fresh-vs-restart-vs-reconnect startup classification (4 new regression tests for the reconnect fix).
+
+### Documentation
+
+- `CHANGELOG.md` — post-v1.1.0 work promoted from "Unreleased" into this release; full history preserved below.
+- `ROADMAP.md` — v1.1.1 milestone added; the forward-looking plan restructured into versioned releases (v1.2–v1.6 + Future).
+- `README.md` — roadmap summary and the status-channel contract now include the 🔁 reconnect marker.
+- `PROJECT_SPEC.md` — current features and the upcoming-releases list updated to match the roadmap.
+- `HANDOFF.md` — timeline, channel contracts, module reference, and release checklist updated to the v1.1.1 state.
+
+### Maintenance
+
+- Version bumped from 1.1.0 to 1.1.1 (`oathwatch/__init__.py`); every version reference across code and docs is consistent.
+- The post-v1.1.0 "Unreleased" work is now a shipped, documented release.
+- No behaviour outside the documented scope changed; fully backward compatible.
 
 ## v1.1.0
 

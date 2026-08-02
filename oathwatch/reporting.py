@@ -8,7 +8,7 @@ fails, reporting degrades silently to console logging and never crashes the
 caller.
 
 Channel contracts (see .env.example):
-- Status channel: only the startup/shutdown markers (🟢/🔄/🔴).
+- Status channel: only the startup/shutdown markers (🟢/🔄/🔁/🔴).
 - Log channel: one operational summary per refresh cycle, plus setup and
   configuration changes and version info — never one message per guild.
 - Error channel: failures with their traceback inside a code block.
@@ -38,6 +38,17 @@ _bot = None
 # Guards against duplicate shutdown markers (close may be called more than
 # once, e.g. by the shutdown command and again by the run loop).
 _shutdown_reported = False
+
+# Whether this process has already sent its startup marker. Discord fires
+# ``on_ready`` again after a gateway reconnect within the same process; those
+# must be reported as a reconnect, never as a second startup/restart.
+_ready_reported = False
+
+# The status-channel lifecycle markers. Kept together so the three startup
+# states (fresh start, process restart, gateway reconnect) never drift.
+STATUS_START = "🟢 Bot Started"
+STATUS_RESTART = "🔄 Bot Restarted"
+STATUS_RECONNECT = "🔁 Bot Reconnected"
 
 
 def configure(bot) -> None:
@@ -144,6 +155,36 @@ def mark_started() -> None:
             f.write("started")
     except OSError as e:
         logger.warning("Could not write start marker: %s", e)
+
+
+async def report_startup() -> str:
+    """Send the lifecycle marker for this ``on_ready`` and return its kind.
+
+    Discord calls ``on_ready`` every time the bot connects — once on process
+    start and again whenever the gateway reconnects. The persisted start
+    marker alone cannot tell a process restart from a reconnect, so the
+    classification is:
+
+    - ``"reconnect"`` — ``on_ready`` fired again in the same process (gateway
+      reconnect): sends 🔁 and leaves the marker untouched.
+    - ``"restart"`` — first ``on_ready`` in this process and a marker exists
+      (a previous run): sends 🔄.
+    - ``"fresh"`` — first ever run (no marker): sends 🟢 and persists the
+      marker so the next process launch reports a restart.
+
+    Returns the kind so callers can pick an appropriate log line.
+    """
+    global _ready_reported
+    if _ready_reported:
+        await send_status(STATUS_RECONNECT)
+        return "reconnect"
+    _ready_reported = True
+    if is_restart():
+        await send_status(STATUS_RESTART)
+        return "restart"
+    await send_status(STATUS_START)
+    mark_started()
+    return "fresh"
 
 
 async def send_shutdown_status() -> None:
