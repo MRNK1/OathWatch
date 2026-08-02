@@ -151,15 +151,16 @@ def process_memory_mb() -> float | None:
     trace was enabled; without either it reports None (health shows 'N/A').
     Never raises.
     """
-    try:
-        import resource
+    if sys.platform != "win32":
+        try:
+            import resource
 
-        raw = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # type: ignore[attr-defined]
-        # ru_maxrss is bytes on macOS and kilobytes on Linux.
-        divisor = 1024 * 1024 if platform.system() == "Darwin" else 1024
-        return raw / divisor
-    except (ImportError, AttributeError, OSError):
-        pass
+            raw = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            # ru_maxrss is bytes on macOS and kilobytes on Linux.
+            divisor = 1024 * 1024 if platform.system() == "Darwin" else 1024
+            return raw / divisor
+        except (ImportError, AttributeError, OSError):
+            pass
     try:
         import tracemalloc
 
