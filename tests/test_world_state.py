@@ -1,7 +1,7 @@
 """World-state update, election parsing, and validation tests."""
 import pytest
 
-from world_state import (
+from oathwatch.world_state import (
     WORLD_STATE,
     apply_election_data,
     is_election_data_valid,
@@ -172,3 +172,13 @@ class TestNormalize:
         norm = normalize_world_state(WORLD_STATE)
         assert norm["election"]["year"] == 222
         assert norm["election"]["candidates"][0]["name"] == "Aatrox"
+
+    def test_legacy_string_last_updated_migrated_to_epoch(self):
+        # Older persisted states stored a formatted UTC string.
+        norm = normalize_world_state({"last_updated": "2024-07-01 12:00 UTC"})
+        assert norm["last_updated"] == 1719835200
+
+    def test_unknown_last_updated_stays_none(self):
+        for value in [None, "Never", "", "not-a-date"]:
+            norm = normalize_world_state({"last_updated": value})
+            assert norm["last_updated"] is None

@@ -1,9 +1,12 @@
 """Shared formatting-helper tests."""
-from formatting import (
+from oathwatch.formatting import (
     FIELD_LIMIT,
     REFRESH_NOTICE,
+    last_updated_text,
+    next_refresh_text,
     perks_text,
     strip_format_codes,
+    timestamps_line,
     truncate,
 )
 
@@ -40,3 +43,29 @@ def test_perks_text_drops_non_dicts():
 
 def test_refresh_notice_present():
     assert "hour" in REFRESH_NOTICE
+
+
+def test_last_updated_text_local_timestamp():
+    assert last_updated_text(1720000000) == "<t:1720000000>"
+
+
+def test_last_updated_text_none():
+    assert last_updated_text(None) == "Never"
+
+
+def test_next_refresh_text_relative():
+    assert next_refresh_text(1720000000) == "<t:1720003600:R>"
+
+
+def test_next_refresh_text_none():
+    assert next_refresh_text(None) == "within an hour"
+
+
+def test_timestamps_line_combines_both():
+    assert timestamps_line(1720000000) == \
+        "🕒 Last updated: <t:1720000000> · ⏭ Next refresh: <t:1720003600:R>"
+
+
+def test_timestamps_line_unknown():
+    assert "Never" in timestamps_line(None)
+    assert "within an hour" in timestamps_line(None)

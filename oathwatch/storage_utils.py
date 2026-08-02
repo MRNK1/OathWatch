@@ -7,8 +7,11 @@ import json
 import os
 import tempfile
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+# Project root is the parent of this package directory (oathwatch/), so the
+# runtime data directory stays at the repository root no matter how the
+# package is imported or installed.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 
 
 def ensure_data_dir():

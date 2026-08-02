@@ -2,9 +2,7 @@
 import discord
 import pytest
 
-import board  # noqa: F401  (registers the Mayor Board)
-import election  # noqa: F401  (registers the Election Board)
-from board_registry import (
+from oathwatch.board_registry import (
     UnknownBoardError,
     all_boards,
     build_board_embed,

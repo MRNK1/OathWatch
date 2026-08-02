@@ -1,11 +1,12 @@
 """Startup validation and guild-removal lifecycle tests."""
 import os
 
-import bot
-import world_storage
-from storage import load_config, save_config
+import pytest
 
-from .mocks import MockGuild
+from oathwatch import bot, world_storage
+from oathwatch.storage import load_config, save_config
+
+from .mocks import MockBot, MockChannel, MockGuild, MockInteraction
 
 
 def test_get_missing_env_reports_all(monkeypatch):
@@ -18,6 +19,52 @@ def test_get_missing_env_empty_when_set(monkeypatch):
     monkeypatch.setenv("DISCORD_TOKEN", "x")
     monkeypatch.setenv("HYPIXEL_API_KEY", "y")
     assert bot.get_missing_env() == []
+
+
+def test_validate_env_flags_missing_required(monkeypatch):
+    monkeypatch.delenv("DISCORD_TOKEN", raising=False)
+    monkeypatch.delenv("HYPIXEL_API_KEY", raising=False)
+    report = bot.validate_env()
+    assert ("DISCORD_TOKEN", True, False) in report
+    assert ("HYPIXEL_API_KEY", True, False) in report
+
+
+def test_validate_env_marks_present_required(monkeypatch):
+    monkeypatch.setenv("DISCORD_TOKEN", "x")
+    monkeypatch.setenv("HYPIXEL_API_KEY", "y")
+    report = bot.validate_env()
+    present = {name: present for name, _, present in report}
+    assert present["DISCORD_TOKEN"] is True
+    assert present["HYPIXEL_API_KEY"] is True
+    required = {name for name, required, _ in report if required}
+    assert required == {"DISCORD_TOKEN", "HYPIXEL_API_KEY"}
+
+
+def test_validate_env_includes_optional_reporting_channels(monkeypatch):
+    for name in ("BOT_STATUS_CHANNEL_ID", "BOT_LOG_CHANNEL_ID", "BOT_ERROR_CHANNEL_ID"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("BOT_STATUS_CHANNEL_ID", "1")
+    report = bot.validate_env()
+    names = [name for name, _, _ in report]
+    assert "BOT_STATUS_CHANNEL_ID" in names
+    assert "BOT_LOG_CHANNEL_ID" in names
+    assert "BOT_ERROR_CHANNEL_ID" in names
+    present = {name: present for name, _, present in report}
+    assert present["BOT_STATUS_CHANNEL_ID"] is True
+    assert present["BOT_LOG_CHANNEL_ID"] is False
+    assert present["BOT_ERROR_CHANNEL_ID"] is False
+
+
+def test_log_env_validation_returns_missing_required(monkeypatch):
+    monkeypatch.delenv("DISCORD_TOKEN", raising=False)
+    monkeypatch.delenv("HYPIXEL_API_KEY", raising=False)
+    assert bot._log_env_validation() == ["DISCORD_TOKEN", "HYPIXEL_API_KEY"]
+
+
+def test_log_env_validation_empty_when_all_set(monkeypatch):
+    monkeypatch.setenv("DISCORD_TOKEN", "x")
+    monkeypatch.setenv("HYPIXEL_API_KEY", "y")
+    assert bot._log_env_validation() == []
 
 
 def test_main_refuses_to_start_without_env(monkeypatch):
@@ -63,3 +110,33 @@ class TestOnGuildRemove:
         save_config({"guilds": {}})
         await bot.on_guild_remove(MockGuild(1, "NeverConfigured", object()))
         assert load_config() == {"guilds": {}}
+
+
+class TestSetChannel:
+    @pytest.mark.usefixtures("isolated_storage")
+    async def test_sets_announcement_channel(self):
+        guild = MockGuild(123, "Guild", object())
+        channel = MockChannel(500, guild)
+        client = MockBot({500: channel})
+        save_config({"guilds": {
+            "123": {"channel_id": None, "notify_enabled": True, "boards": {}},
+        }})
+        interaction = MockInteraction(123, 123, client=client, guild=guild)
+
+        await bot.setchannel.callback(interaction, channel)
+
+        assert load_config()["guilds"]["123"]["announcement_channel_id"] == 500
+        assert "announcement channel" in interaction.replies[0]["content"].lower()
+
+    @pytest.mark.usefixtures("isolated_storage")
+    async def test_rejects_channel_from_other_guild(self):
+        guild = MockGuild(123, "Guild", object())
+        other = MockGuild(999, "Other", object())
+        channel = MockChannel(500, other)
+        client = MockBot({500: channel})
+        interaction = MockInteraction(123, 123, client=client, guild=guild)
+
+        await bot.setchannel.callback(interaction, channel)
+
+        assert "must be in this server" in interaction.replies[0]["content"]
+        assert load_config()["guilds"] == {}

@@ -1,10 +1,13 @@
-"""Mock Discord objects for testing board/setup flows without a network.
+"""Mock Discord objects for testing board/setup/owner flows without a network.
 
 The mocks mirror enough of the discord.py API that the bot's logic can be
 exercised end to end: channels hold messages, messages can be edited or
-deleted, and missing messages raise the same discord.NotFound the real
-library would.
+deleted, missing messages raise the same discord.NotFound the real library
+would, and interactions record their (ephemeral) replies for owner-command
+and error-reporting tests.
 """
+from types import SimpleNamespace
+
 import discord
 
 
@@ -73,10 +76,13 @@ class MockChannel(discord.TextChannel):
     def permissions_for(self, member):
         return self.perms
 
-    async def send(self, embed=None, content=None):
+    async def send(self, content=None, embed=None, **kwargs):
+        # Signature mirrors discord.py's Messageable.send (content first), so
+        # positional content and keyword embed calls both behave correctly.
         MockChannel._counter += 1
         msg = MockMessage(MockChannel._counter, channel=self)
         msg.last_embed = embed
+        msg.content = content
         self.messages[msg.id] = msg
         return msg
 
@@ -89,8 +95,86 @@ class MockChannel(discord.TextChannel):
 
 
 class MockBot:
-    def __init__(self, channels=None):
+    def __init__(self, channels=None, guilds=None):
         self.channels = channels or {}
+        self.guilds = guilds or []
+        self._guild_map = {g.id: g for g in self.guilds}
+        self.latency = 0.0
+        self.closed = False
+        self._ready = True
 
     def get_channel(self, cid):
         return self.channels.get(cid)
+
+    def get_guild(self, gid):
+        return self._guild_map.get(gid)
+
+    def is_ready(self):
+        return self._ready
+
+    async def close(self):
+        self.closed = True
+
+
+class MockInteractionResponse:
+    """Records replies/followups/edits so tests can assert on them."""
+
+    def __init__(self, interaction):
+        self._interaction = interaction
+
+    def is_done(self):
+        return self._interaction._done
+
+    async def send_message(self, content=None, embed=None, ephemeral=False,
+                           view=None):
+        self._interaction._done = True
+        self._interaction.replies.append({
+            "content": content, "embed": embed, "ephemeral": ephemeral,
+            "view": view,
+        })
+
+    async def edit_message(self, content=None, embed=None, view=None):
+        # Mirrors InteractionResponse.edit_message, used by view callbacks to
+        # replace the preview message after Confirm/Cancel.
+        self._interaction.edits.append({
+            "content": content, "embed": embed, "view": view,
+        })
+
+    async def defer(self, ephemeral=False):
+        self._interaction._done = True
+        self._interaction.deferred = ephemeral
+
+
+class MockFollowup:
+    """Records followup messages (used after an ephemeral defer)."""
+
+    def __init__(self, interaction):
+        self._interaction = interaction
+
+    async def send(self, content=None, ephemeral=False):
+        self._interaction.followups.append({
+            "content": content, "ephemeral": ephemeral,
+        })
+
+
+class MockInteraction:
+    """Minimal discord.Interaction stand-in for owner-command tests."""
+
+    def __init__(self, user_id, guild_id, client=None, guild=None,
+                 interaction_type=None):
+        self.user = SimpleNamespace(id=user_id)
+        self.guild_id = guild_id
+        self.client = client or MockBot()
+        self.guild = guild or MockGuild(guild_id, "Owner Guild", object())
+        self.channel_id = None
+        self.type = interaction_type or discord.InteractionType.application_command
+        self._done = False
+        self.deferred = False
+        self.replies = []
+        self.followups = []
+        self.edits = []
+        # The message an ephemeral preview was sent on; view callbacks edit it
+        # in place via response.edit_message.
+        self.message = MockMessage(9000)
+        self.response = MockInteractionResponse(self)
+        self.followup = MockFollowup(self)

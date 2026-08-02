@@ -7,9 +7,16 @@ formatting.py so every board renders consistently.
 """
 import discord
 
-from board_registry import register_board
-from formatting import REFRESH_NOTICE, perks_text, strip_format_codes, truncate
-from world_state import WORLD_STATE
+from .board_registry import register_board
+from .formatting import (
+    FOOTER_TEXT,
+    REFRESH_NOTICE,
+    perks_text,
+    strip_format_codes,
+    timestamps_line,
+    truncate,
+)
+from .world_state import WORLD_STATE
 
 
 def build_mayor_board_embed() -> discord.Embed:
@@ -19,7 +26,11 @@ def build_mayor_board_embed() -> discord.Embed:
 
     embed = discord.Embed(
         title="📜 OathWatch",
-        description=f"Current SkyBlock World Status\n\n_{REFRESH_NOTICE}_",
+        description=(
+            f"Current SkyBlock World Status\n\n"
+            f"{timestamps_line(WORLD_STATE['last_updated'])}"
+            f"\n\n_{REFRESH_NOTICE}_"
+        ),
         color=discord.Color.blue(),
     )
 
@@ -45,9 +56,7 @@ def build_mayor_board_embed() -> discord.Embed:
             inline=False,
         )
 
-    embed.set_footer(
-        text=f"🕒 Last updated: {WORLD_STATE['last_updated']} · Refresh: every hour"
-    )
+    embed.set_footer(text=FOOTER_TEXT)
 
     return embed
 

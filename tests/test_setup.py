@@ -2,11 +2,19 @@
 import discord
 import pytest
 
-from board_registry import UnknownBoardError
-from setup import SetupError, run_setup, run_unsetup, update_guild_boards
-from storage import load_config
+from oathwatch.board_health import MAX_CONSECUTIVE_FAILURES
+from oathwatch.board_registry import UnknownBoardError
+from oathwatch.setup import SetupError, run_setup, run_unsetup, update_guild_boards
+from oathwatch.storage import load_config, save_config
 
-from .mocks import MockBot, MockChannel, MockGuild, MockPerms, MockResponse
+from .mocks import (
+    MockBot,
+    MockChannel,
+    MockGuild,
+    MockMessage,
+    MockPerms,
+    MockResponse,
+)
 
 
 @pytest.mark.usefixtures("isolated_storage", "reset_world_state")
@@ -158,6 +166,432 @@ class TestUpdateGuildBoards:
         new_id = load_config()["guilds"]["301"]["boards"]["election"]["message_id"]
         assert new_id != old_id
         assert new_id in channel.messages
+
+
+@pytest.mark.usefixtures("isolated_storage", "reset_world_state")
+class TestStaleBoardCleanup:
+    """Permanent-failure tracking, threshold cleanup, and recovery."""
+
+    def _dead_channel_bot(self, guild_id, guild_name, board_key, message_id):
+        """A bot that cannot see the guild's update channel (it was deleted)."""
+        guild = MockGuild(int(guild_id), guild_name, object())
+        bot = MockBot({})
+        bot.get_guild = lambda gid: guild if gid == int(guild_id) else None
+        save_config({"guilds": {
+            guild_id: {
+                "channel_id": int(guild_id),
+                "notify_enabled": True,
+                "boards": {board_key: {"message_id": message_id}},
+            },
+        }})
+        return bot
+
+    async def test_deleted_channel_increments_per_board(self):
+        bot = self._dead_channel_bot("700", "GuildC", "mayor", 1)
+        save_config({"guilds": {
+            "700": {
+                "channel_id": 700,
+                "notify_enabled": True,
+                "boards": {
+                    "mayor": {"message_id": 1},
+                    "election": {"message_id": 2},
+                },
+            },
+        }})
+
+        await update_guild_boards(bot)
+
+        boards = load_config()["guilds"]["700"]["boards"]
+        # Every tracked board in a dead channel gets its own counter.
+        assert boards["mayor"]["failures"] == 1
+        assert boards["election"]["failures"] == 1
+
+    async def test_deleted_channel_cleans_up_after_three_failures(self, monkeypatch):
+        logs = []
+        async def fake_send_log(message):
+            logs.append(message)
+        monkeypatch.setattr("oathwatch.setup.reporting.send_log", fake_send_log)
+
+        bot = self._dead_channel_bot("700", "Skyblock Hub", "mayor", 1)
+
+        await update_guild_boards(bot)  # failure 1
+        assert load_config()["guilds"]["700"]["boards"]["mayor"]["failures"] == 1
+        assert logs == []
+
+        await update_guild_boards(bot)  # failure 2
+        assert load_config()["guilds"]["700"]["boards"]["mayor"]["failures"] == 2
+        assert logs == []
+
+        await update_guild_boards(bot)  # failure 3 -> cleanup
+
+        boards = load_config()["guilds"]["700"]["boards"]
+        assert "mayor" not in boards  # only the stale board reference removed
+        assert load_config()["guilds"]["700"]["channel_id"] == 700  # guild kept
+
+        assert len(logs) == 1  # exactly one final cleanup message
+        msg = logs[0]
+        assert "🧹 Board Cleanup" in msg
+        assert "Guild:\nSkyblock Hub" in msg
+        assert "Guild ID:\n700" in msg
+        assert "Board:\nMayor" in msg
+        assert "Reason:\nChannel deleted" in msg
+        assert "3 consecutive permanent failures" in msg
+        assert "Removed stale board reference from config.json" in msg
+
+        # Never logged again: the reference is gone, so nothing to clean up.
+        await update_guild_boards(bot)
+        assert len(logs) == 1
+
+    async def test_deleted_channel_cleans_two_boards_same_cycle(self, monkeypatch):
+        # The dead-channel branch iterates list(boards); two boards reaching
+        # the threshold in one pass must both be cleaned, each logged once.
+        logs = []
+        async def fake_send_log(message):
+            logs.append(message)
+        monkeypatch.setattr("oathwatch.setup.reporting.send_log", fake_send_log)
+
+        bot = self._dead_channel_bot("1200", "GuildC", "mayor", 1)
+        save_config({"guilds": {
+            "1200": {
+                "channel_id": 1200,
+                "notify_enabled": True,
+                "boards": {
+                    "mayor": {"message_id": 1, "failures": 2},
+                    "election": {"message_id": 2, "failures": 2},
+                },
+            },
+        }})
+
+        await update_guild_boards(bot)
+
+        boards = load_config()["guilds"]["1200"]["boards"]
+        assert boards == {}  # both stale references removed
+
+        cleanup = [msg for msg in logs if "🧹 Board Cleanup" in msg]
+        assert len(cleanup) == 2  # exactly one cleanup message per board
+        logged = "".join(cleanup)
+        assert "Board:\nMayor" in logged
+        assert "Board:\nElection" in logged
+
+    async def test_channel_deleted_mid_send_is_permanent(self, monkeypatch):
+        # bot.get_channel still resolves the cached channel object, but the
+        # channel is actually gone: Discord answers send() with a NotFound.
+        channel = MockChannel(800, MockGuild(800, "GuildC", object()))
+        bot = MockBot({800: channel})
+        save_config({"guilds": {
+            "800": {
+                "channel_id": 800,
+                "notify_enabled": True,
+                "boards": {"mayor": {"message_id": 1}},
+            },
+        }})
+
+        async def failing_send(*args, **kwargs):
+            raise discord.NotFound(MockResponse(404), "channel gone")
+        channel.send = failing_send
+
+        await update_guild_boards(bot)
+
+        boards = load_config()["guilds"]["800"]["boards"]
+        assert boards["mayor"]["failures"] == 1
+
+    @pytest.mark.parametrize("exc", [
+        discord.HTTPException(MockResponse(500), "boom"),
+        discord.Forbidden(MockResponse(403), "no access"),
+    ])
+    async def test_transient_errors_never_increment(self, monkeypatch, exc):
+        channel = MockChannel(800, MockGuild(800, "GuildC", object()))
+        bot = MockBot({800: channel})
+        save_config({"guilds": {
+            "800": {
+                "channel_id": 800,
+                "notify_enabled": True,
+                "boards": {"mayor": {"message_id": 1}},
+            },
+        }})
+
+        message = MockMessage(1, channel=channel)
+        channel.messages[1] = message
+        async def failing_edit(**kwargs):
+            raise exc
+        message.edit = failing_edit
+
+        for _ in range(MAX_CONSECUTIVE_FAILURES + 2):
+            await update_guild_boards(bot)
+
+        boards = load_config()["guilds"]["800"]["boards"]
+        # Transient failures never touch the counter and never remove the board.
+        assert boards["mayor"] == {"message_id": 1}
+
+    async def test_two_boards_both_cleaned_in_same_cycle(self, monkeypatch):
+        # Two boards both reach the threshold in the SAME refresh cycle.
+        # The main board-update loop iterates the live boards dict directly;
+        # removing the first stale board mid-iteration must not abort
+        # processing of the second, or the second board is never cleaned and
+        # the refresh raises. Regression guard for the pop-during-iteration
+        # bug (the dead-channel branch uses list(boards) and is fine, but the
+        # channel-live path must too).
+        logs = []
+        async def fake_send_log(message):
+            logs.append(message)
+        monkeypatch.setattr("oathwatch.setup.reporting.send_log", fake_send_log)
+
+        # Channel object is live, but Discord answers send() with a NotFound
+        # (the channel was deleted mid-check): place_board raises
+        # BoardPermanentError for both boards.
+        channel = MockChannel(900, MockGuild(900, "GuildC", object()))
+        async def failing_send(*args, **kwargs):
+            raise discord.NotFound(MockResponse(404), "channel gone")
+        channel.send = failing_send
+        bot = MockBot({900: channel})
+
+        save_config({"guilds": {
+            "900": {
+                "channel_id": 900,
+                "notify_enabled": True,
+                "boards": {
+                    "mayor": {"message_id": 1, "failures": 2},
+                    "election": {"message_id": 2, "failures": 2},
+                },
+            },
+        }})
+
+        # update_guild_boards promises never to raise.
+        await update_guild_boards(bot)
+
+        boards = load_config()["guilds"]["900"]["boards"]
+        assert boards == {}  # both stale references removed
+
+        cleanup = [msg for msg in logs if "🧹 Board Cleanup" in msg]
+        assert len(cleanup) == 2  # exactly one cleanup message per board
+        logged = "".join(cleanup)
+        assert "Board:\nMayor" in logged
+        assert "Board:\nElection" in logged
+
+    async def test_save_failure_defers_cleanup(self, monkeypatch):
+        # The board hits the cleanup threshold but save_config raises (disk
+        # full, permission error): the pipeline must not abort, the removal
+        # must not be persisted, and the board is retried next refresh.
+        logs = []
+        errors = []
+        async def fake_send_log(message):
+            logs.append(message)
+        async def fake_report_error(title, exc=None):
+            errors.append((title, exc))
+        monkeypatch.setattr("oathwatch.setup.reporting.send_log", fake_send_log)
+        monkeypatch.setattr("oathwatch.setup.reporting.report_error", fake_report_error)
+
+        channel = MockChannel(1000, MockGuild(1000, "GuildC", object()))
+        async def failing_send(*args, **kwargs):
+            raise discord.NotFound(MockResponse(404), "channel gone")
+        channel.send = failing_send
+        bot = MockBot({1000: channel})
+
+        save_config({"guilds": {
+            "1000": {
+                "channel_id": 1000,
+                "notify_enabled": True,
+                "boards": {"mayor": {"message_id": 1, "failures": 2}},
+            },
+        }})
+
+        def failing_save(data):
+            raise OSError("disk full")
+        monkeypatch.setattr("oathwatch.setup.save_config", failing_save)
+
+        # update_guild_boards promises never to raise.
+        await update_guild_boards(bot)
+
+        # Disk is untouched: the board stays at its pre-cleanup counter and
+        # will be retried on the next refresh.
+        boards = load_config()["guilds"]["1000"]["boards"]
+        assert boards["mayor"]["failures"] == 2
+        assert boards["mayor"]["message_id"] == 1
+
+        # No cleanup message (nothing was persisted), but the failure is
+        # reported to the error channel and the deferral is logged.
+        assert [msg for msg in logs if "🧹 Board Cleanup" in msg] == []
+        assert len(errors) == 1
+        assert "mayor" in errors[0][0]
+        assert isinstance(errors[0][1], OSError)
+        deferred = [msg for msg in logs if "⚠️ Board Cleanup Deferred" in msg]
+        assert len(deferred) == 1
+        assert "Board:\nMayor" in deferred[0]
+        assert "will be retried on the next refresh" in deferred[0]
+
+    async def test_save_failure_does_not_block_remaining_boards(self, monkeypatch):
+        # A failed save for the first stale board must not abort processing of
+        # the second: election is still counted this cycle even though mayor's
+        # cleanup is deferred.
+        logs = []
+        async def fake_send_log(message):
+            logs.append(message)
+        monkeypatch.setattr("oathwatch.setup.reporting.send_log", fake_send_log)
+
+        channel = MockChannel(1100, MockGuild(1100, "GuildC", object()))
+        async def failing_send(*args, **kwargs):
+            raise discord.NotFound(MockResponse(404), "channel gone")
+        channel.send = failing_send
+        bot = MockBot({1100: channel})
+
+        save_config({"guilds": {
+            "1100": {
+                "channel_id": 1100,
+                "notify_enabled": True,
+                "boards": {
+                    "mayor": {"message_id": 1, "failures": 2},  # threshold, save fails
+                    "election": {"message_id": 2},               # first failure, must count
+                },
+            },
+        }})
+
+        real_save = save_config
+        attempts = {"n": 0}
+        def flaky_save(data):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise OSError("disk full")
+            real_save(data)
+        monkeypatch.setattr("oathwatch.setup.save_config", flaky_save)
+
+        await update_guild_boards(bot)
+
+        boards = load_config()["guilds"]["1100"]["boards"]
+        # Mayor's cleanup was deferred (still on disk, retried next refresh)...
+        assert boards["mayor"]["failures"] == 2
+        # ...but election was still processed on this cycle.
+        assert boards["election"]["failures"] == 1
+
+        # Exactly one deferral log; nothing was cleaned or double-processed.
+        deferred = [msg for msg in logs if "⚠️ Board Cleanup Deferred" in msg]
+        assert len(deferred) == 1
+        assert [msg for msg in logs if "🧹 Board Cleanup" in msg] == []
+
+    async def test_report_failure_cannot_abort_persisted_cleanup(self, monkeypatch):
+        # A log-channel failure that surfaces AFTER a successful save must
+        # never abort the refresh nor undo the persisted cleanup: both boards
+        # were already removed from config, and that removal stands.
+        async def exploding_send_log(message):
+            raise RuntimeError("log channel unreachable")
+        monkeypatch.setattr("oathwatch.setup.reporting.send_log", exploding_send_log)
+
+        channel = MockChannel(1300, MockGuild(1300, "GuildC", object()))
+        async def failing_send(*args, **kwargs):
+            raise discord.NotFound(MockResponse(404), "channel gone")
+        channel.send = failing_send
+        bot = MockBot({1300: channel})
+
+        save_config({"guilds": {
+            "1300": {
+                "channel_id": 1300,
+                "notify_enabled": True,
+                "boards": {
+                    "mayor": {"message_id": 1, "failures": 2},
+                    "election": {"message_id": 2, "failures": 2},
+                },
+            },
+        }})
+
+        # update_guild_boards promises never to raise.
+        await update_guild_boards(bot)
+
+        # Both cleanups persisted despite the log-channel explosion.
+        boards = load_config()["guilds"]["1300"]["boards"]
+        assert boards == {}
+
+    async def test_report_failure_after_rollback_still_recovers(self, monkeypatch):
+        # Worst case: the save fails AND the error channel / log channel also
+        # throw. The board must still be rolled back to its pre-cleanup state
+        # (retried next refresh) and the refresh must not abort.
+        async def exploding_report_error(title, exc=None):
+            raise RuntimeError("error channel unreachable")
+        monkeypatch.setattr(
+            "oathwatch.setup.reporting.report_error", exploding_report_error
+        )
+        async def exploding_send_log(message):
+            raise RuntimeError("log channel unreachable")
+        monkeypatch.setattr("oathwatch.setup.reporting.send_log", exploding_send_log)
+
+        channel = MockChannel(1400, MockGuild(1400, "GuildC", object()))
+        async def failing_send(*args, **kwargs):
+            raise discord.NotFound(MockResponse(404), "channel gone")
+        channel.send = failing_send
+        bot = MockBot({1400: channel})
+
+        save_config({"guilds": {
+            "1400": {
+                "channel_id": 1400,
+                "notify_enabled": True,
+                "boards": {"mayor": {"message_id": 1, "failures": 2}},
+            },
+        }})
+
+        def failing_save(data):
+            raise OSError("disk full")
+        monkeypatch.setattr("oathwatch.setup.save_config", failing_save)
+
+        # update_guild_boards promises never to raise.
+        await update_guild_boards(bot)
+
+        # Rolled back to the pre-cleanup counter; nothing persisted, so the
+        # board is retried on the next refresh.
+        boards = load_config()["guilds"]["1400"]["boards"]
+        assert boards["mayor"]["failures"] == 2
+        assert boards["mayor"]["message_id"] == 1
+
+    async def test_recovery_resets_counter_and_logs_once(self, monkeypatch):
+        logs = []
+        async def fake_send_log(message):
+            logs.append(message)
+        monkeypatch.setattr("oathwatch.setup.reporting.send_log", fake_send_log)
+
+        bot = self._dead_channel_bot("800", "GuildC", "mayor", 1)
+
+        await update_guild_boards(bot)  # failure 1
+        await update_guild_boards(bot)  # failure 2
+        assert load_config()["guilds"]["800"]["boards"]["mayor"]["failures"] == 2
+        assert logs == []
+
+        # The channel comes back and the board message is live again.
+        channel = MockChannel(800, MockGuild(800, "GuildC", object()))
+        bot.channels[800] = channel
+        channel.messages[1] = MockMessage(1, channel=channel)
+
+        await update_guild_boards(bot)
+
+        boards = load_config()["guilds"]["800"]["boards"]
+        assert boards["mayor"] == {"message_id": 1}  # counter reset
+        assert len(logs) == 1
+        assert "✅ Board Recovered" in logs[0]
+        assert "Recovered after:\n2 failed attempts" in logs[0]
+
+        # Healthy next cycle: no repeated recovery message.
+        await update_guild_boards(bot)
+        assert len(logs) == 1
+
+    async def test_self_healed_recreation_also_recovers(self, monkeypatch):
+        logs = []
+        async def fake_send_log(message):
+            logs.append(message)
+        monkeypatch.setattr("oathwatch.setup.reporting.send_log", fake_send_log)
+
+        bot = self._dead_channel_bot("800", "GuildC", "mayor", 1)
+
+        await update_guild_boards(bot)  # failure 1 (channel gone)
+        assert load_config()["guilds"]["800"]["boards"]["mayor"]["failures"] == 1
+
+        # Channel returns but the stored board message was deleted: the
+        # existing self-healing recreates it, which counts as a success.
+        channel = MockChannel(800, MockGuild(800, "GuildC", object()))
+        bot.channels[800] = channel
+
+        await update_guild_boards(bot)
+
+        boards = load_config()["guilds"]["800"]["boards"]
+        assert boards["mayor"]["message_id"] in channel.messages  # recreated
+        assert "failures" not in boards["mayor"]  # counter reset
+        assert len(logs) == 1
+        assert "✅ Board Recovered" in logs[0]
 
 
 @pytest.mark.usefixtures("isolated_storage", "reset_world_state")

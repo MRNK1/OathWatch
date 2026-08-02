@@ -1,6 +1,6 @@
 import os
 
-from storage_utils import DATA_DIR, read_json, write_json_atomic
+from .storage_utils import DATA_DIR, read_json, write_json_atomic
 
 WORLD_FILE = os.path.join(DATA_DIR, "world_state.json")
 

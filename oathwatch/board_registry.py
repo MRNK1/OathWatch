@@ -22,7 +22,7 @@ class BoardType:
     build_embed: Callable[[], discord.Embed]
 
 
-_REGISTRY: dict = {}
+_REGISTRY: dict[str, BoardType] = {}
 
 
 def register_board(key: str, name: str, build_embed: Callable[[], discord.Embed]) -> None:
@@ -38,7 +38,7 @@ def get_board(key: str) -> BoardType:
         raise UnknownBoardError(key) from None
 
 
-def all_boards() -> list:
+def all_boards() -> list[BoardType]:
     """Return the registered boards in insertion order."""
     return list(_REGISTRY.values())
 

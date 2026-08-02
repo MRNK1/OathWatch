@@ -7,9 +7,49 @@ duplicating them.
 """
 import re
 
+from . import __version__
+
 REFRESH_NOTICE = "Data refreshes every hour and may be delayed by up to one hour."
 
 FIELD_LIMIT = 1024
+
+# The hourly update loop refreshes once an hour; used for the relative
+# "Next refresh" timestamp on every board.
+REFRESH_SECONDS = 3600
+
+# Static footer text shared by every board. Every embed in the project carries
+# the same footer so branding stays consistent. Discord does not render
+# <t:...> timestamps in footers, so the dynamic time information lives in
+# each board's description instead (see timestamps_line).
+FOOTER_TEXT = f"OathWatch v{__version__}"
+
+
+def last_updated_text(epoch) -> str:
+    """Build a Discord timestamp for the last update.
+
+    Discord renders ``<t:...>`` in each viewer's own timezone, so every viewer
+    sees the time in their local time without any UTC formatting on our side.
+    """
+    if epoch is None:
+        return "Never"
+    return f"<t:{int(epoch)}>"
+
+
+def next_refresh_text(epoch) -> str:
+    """Build a relative Discord timestamp for the next hourly refresh."""
+    if epoch is None:
+        return "within an hour"
+    return f"<t:{int(epoch) + REFRESH_SECONDS}:R>"
+
+
+def timestamps_line(epoch) -> str:
+    """Build the 'Last updated' / 'Next refresh' status line.
+
+    Discord renders native timestamps only in embed descriptions and fields,
+    never in footers, so boards put this line in their description.
+    """
+    return (f"🕒 Last updated: {last_updated_text(epoch)}"
+            f" · ⏭ Next refresh: {next_refresh_text(epoch)}")
 
 
 def strip_format_codes(text) -> str:

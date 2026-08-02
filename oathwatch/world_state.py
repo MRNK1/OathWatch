@@ -13,22 +13,44 @@ WORLD_STATE: dict = {
         "year": None,  # int (election year) or None when no election is running
         "candidates": [],  # sorted by vote_percent, highest first
     },
-    "last_updated": "Never",
+    "last_updated": None,  # unix epoch seconds, or None when never updated
     # Last mayor name already announced to guilds, used to prevent duplicate
     # change notifications across restarts.
     "last_announced": "Unknown",
 }
 
 
-def format_timestamp(epoch_ms) -> str:
-    """Format an epoch-milliseconds timestamp as UTC, or 'Never' if invalid."""
+def _coerce_epoch_seconds(epoch_ms) -> int | None:
+    """Return unix epoch seconds for an epoch-milliseconds value, or None.
+
+    Discord timestamps are unix seconds; the API reports milliseconds.
+    """
     if epoch_ms in (None, 0, ""):
-        return "Never"
+        return None
     try:
-        ts = datetime.fromtimestamp(int(epoch_ms) / 1000, tz=timezone.utc)
+        return int(epoch_ms) // 1000
     except (ValueError, OverflowError, OSError, TypeError):
-        return "Never"
-    return ts.strftime("%Y-%m-%d %H:%M UTC")
+        return None
+
+
+def _coerce_last_updated(value) -> int | None:
+    """Coerce persisted last_updated into unix epoch seconds, or None.
+
+    Earlier versions stored a formatted UTC string (e.g. "2024-07-01 12:00
+    UTC"); recover the epoch so the Discord timestamp still works. The next
+    refresh replaces it with a fresh value anyway.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str) and value not in ("", "Never"):
+        try:
+            parsed = datetime.strptime(value, "%Y-%m-%d %H:%M UTC")
+        except ValueError:
+            return None
+        return int(parsed.replace(tzinfo=timezone.utc).timestamp())
+    return None
 
 
 def _clean_name(value, default="Unknown") -> str:
@@ -168,7 +190,7 @@ def apply_election_data(data: dict) -> bool:
         changed = True
     WORLD_STATE["election"] = new_election
 
-    WORLD_STATE["last_updated"] = format_timestamp(data.get("lastUpdated"))
+    WORLD_STATE["last_updated"] = _coerce_epoch_seconds(data.get("lastUpdated"))
 
     return changed
 
@@ -213,6 +235,6 @@ def normalize_world_state(state) -> dict:
         "mayor": mayor_entry,
         "minister": minister_entry,
         "election": _coerce_election(state.get("election")),
-        "last_updated": str(state.get("last_updated", "Never")),
+        "last_updated": _coerce_last_updated(state.get("last_updated")),
         "last_announced": last_announced,
     }

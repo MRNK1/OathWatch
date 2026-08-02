@@ -6,20 +6,46 @@ Phase 2 ✅ Mayor Board
 Phase 3 ✅ Setup System
 Phase 4 ✅ Election Board
 Phase 5 ✅ Release Infrastructure (docs, startup, lifecycle, tooling, tests, CI)
+Phase 6 ✅ Guild Access Control (guild whitelist/blacklist; blocked guilds disabled)
 
-Phase 6
-Public API
+Milestone ✅ v1.0.1 — Election Board UI Polish (support bars, computed percentages, native time display)
+
+Milestone ✅ v1.0.2 — Package restructure (all modules moved into the `oathwatch/` package; no behaviour change)
+
+Milestone ✅ v1.1.0 — Owner System & Reporting (owner-only `/owner` commands; status/log/error channels)
+
+Milestone ✅ Stale-board cleanup (deleted-message self-healing preserved; deleted-channel boards auto-clean after 3 consecutive permanent failures)
+
+Milestone ✅ Final production polish (`/owner health`, `stats`, `version`; slow-refresh detection; per-variable startup validation; `config.backup.json`; shared embed footer/colour scheme; `/setchannel` re-added as the announcement channel; `/owner announce` + announcement history with Confirm/Cancel previews)
+
+## Final Production Polish
+
+- **`/owner health`** — subsystem health embed with an overall Green/Yellow/Red level driven by live state (Discord API + latency, background loop, Hypixel/refresh, configuration, world state, reporting channels, access control, last/next refresh, memory). Ephemeral, owner-guild-scoped.
+- **`/owner stats`** — version, uptime, guild totals (total/configured/allowed/blocked), board counts (mayor/election/tracked), refresh metrics (count, average, longest) from the central `runtime.py`.
+- **`/owner version`** — version, git commit, Python, discord.py, platform, process start time, uptime.
+- **Slow-refresh detection** — a refresh over 10s logs one warning to the log channel (duration, average, guild count, timestamp); all refreshes feed `runtime.record_refresh`.
+- **Startup validation** — every env var (required + optional reporting channels) logged with a ✅/⚠ line; non-fatal gaps don't block startup.
+- **Config backup** — `config.backup.json` written before each `config.json` save (one rolling atomic backup).
+- **Shared embed polish** — `OathWatch v<version>` footer + consistent colour scheme on every embed.
+- **Announcement channel** — `/setchannel` now sets `announcement_channel_id` (independent of the `/setup` board channel).
+- **Announcements** — `/owner announce` with an interactive Confirm/Cancel preview, per-type embed colours, optional @here/@everyone ping, and an ephemeral delivery summary; failures are reported to the error channel once and never notify users.
+- **Announcement history** — `data/announcement_history.json` (auto-created, capped at 20, newest first, sequential `ANN-XXXX`); `/owner announcement history|resend|delete|clear` (clear requires explicit confirmation; corrupt files are quarantined to `*.corrupted.json` and reset, with an error-channel log).
+- `runtime.py` (central metrics) and `announcements.py` (broadcast + history + views).
+- Tests: 63 new.
 
 Phase 7
-Website
+Public API
 
 Phase 8
-Bazaar
+Website
 
 Phase 9
-Release Candidate
+Bazaar
 
 Phase 10
+Release Candidate
+
+Phase 11
 v1.0
 ## Completed Phases
 
@@ -44,7 +70,7 @@ v1.0
 
 ### Phase 3 — Setup System (redesign)
 
-- One-step `/setup` replaces the `/setchannel` + `/board` flow; boards are auto-created.
+- One-step `/setup` replaces the `/setchannel` + `/board` flow; boards are auto-created. `/setchannel` was removed as the update-channel setter, then re-added later as the announcement-channel setter (see the Final Production Polish section).
 - Board-type registry (`board_registry.py`): future boards plug in via registration, no setup rewrites.
 - Board-agnostic `setup.py`: create/update/recreate boards in place, self-healing hourly refresh.
 - Duplicate-board prevention; deleted board/channel recovery; permission failures surface clearly.
@@ -61,6 +87,16 @@ v1.0
 - `apply_election_data` now reports *any* world-state change so boards refresh when votes move, not just on mayor changes.
 - Shared render helpers (`strip_format_codes`, `truncate`, `perks_text`, refresh notice) extracted into `formatting.py` — both boards render from one source of truth.
 
+### Phase 6 — Guild Access Control
+
+- `access_control.py` — isolated whitelist/blacklist logic; `is_guild_allowed` is the single source of truth for commands, boards, refresh, and notifications. Rules: blacklist always wins, whitelist mode restricts to whitelisted guilds, otherwise every guild is allowed.
+- Independent persistence in `data/access_control.json`: auto-created on first use, atomic writes, corrupt-file fallback to defaults, and automatic migration when the schema changes (legacy int ids and bare string blacklist entries migrate silently).
+- `/owner whitelist` (enable / disable / status / add / remove / list) and `/owner blacklist` (add with required reason / remove / list) command groups — guild-scoped, owner-only, every reply ephemeral. Blacklist entries store Guild ID, Reason, Added By, and Added Timestamp (rendered as a Discord timestamp in `/owner blacklist list`).
+- Command gate via a custom `CommandTree.interaction_check` (no per-command edits): blocked guilds get the ephemeral disabled message and every slash command is dropped — including future commands.
+- Blocked guilds are disabled, never left: board creation/updates/recreation, self-healing, notifications, scheduled refreshes, and setup all skip blocked guilds, and no stored data is modified. The owner guild is exempt from the command gate so the control panel can never be locked out.
+- Change logging to the log channel: whitelist enabled/disabled, guild added/removed from whitelist, guild added/removed from blacklist (with guild name, guild id, reason, owner, and timestamp).
+- Tests: 40 new covering storage/migration, rule precedence, owner whitelist/blacklist commands, the command gate, and blocked-guild feature skips.
+
 ### Phase 5 — Release Infrastructure
 
 - Repository: `README.md` (overview, features, screenshots placeholders, install/config/env/commands, architecture, structure, roadmap, dev setup, contributing, license, credits), `.env.example`, MIT `LICENSE`.
@@ -69,3 +105,21 @@ v1.0
 - Tooling: `pyproject.toml` (Ruff + MyPy + Pytest config), `requirements-dev.txt`, GitHub Actions CI (lint → type check → tests on Python 3.10 & 3.12).
 - Tests: permanent `tests/` suite (47 tests) covering storage, config migration, election parsing, board registry, setup system, world-state updates, formatting, startup validation, and guild-removal lifecycle — all isolated from real `data/`.
 - Type safety: `WORLD_STATE`/registry annotations, narrowed text-channel types, `raise … from` chaining, fixed Hypixel header typing.
+
+### v1.1.0 — Owner System & Reporting
+
+- Owner-only `/owner` command group (`botstatus`, `refresh`, `shutdown`), registered ONLY inside the owner guild and never synced globally — it can never appear in a public server.
+- Owner permission gate: only the owner user may execute the commands; every other caller gets an ephemeral *"You do not have permission to use this command."* All replies are ephemeral.
+- Three optional reporting channels configured via `.env` (`BOT_STATUS_CHANNEL_ID`, `BOT_LOG_CHANNEL_ID`, `BOT_ERROR_CHANNEL_ID`):
+  - Status: 🟢 Bot Started / 🔄 Bot Restarted (persisted start marker) / 🔴 Bot Shutdown (sent on any clean close via an `OathWatchBot.close` override).
+  - Log: one message per refresh cycle (hourly or manual), setup completed, board recreated (in the refresh summary), configuration changes, version info.
+  - Error: unhandled exceptions, command errors, permission failures, Discord HTTP failures, Hypixel API failures, storage failures, board failures — traceback in a code block.
+- `reporting.py` (reusable channel reporting), `refresh.py` (shared refresh pipeline used by the loop and `/owner refresh`), `owner.py` (isolated owner functionality).
+- Tests: 25 new covering guild-scoping, non-owner denial, owner execution, startup/shutdown/refresh/error logging, and single-message-per-cycle.
+
+### v1.0.1 — Election Board UI Polish
+
+- Discord native timestamps: "Last Updated" (`<t:...>`) renders in each viewer's local timezone; "Next Refresh" (`<t:...:R>`) is relative to the hourly loop.
+- Proportional text progress bars (10 cells) for every candidate, with vote percentages derived from vote counts at render time when the API omits them.
+- Render-time standings: candidates are re-ranked by computed support so the Leading Candidate field is always accurate.
+- `last_updated` in world state now stores unix epoch seconds; legacy UTC-string values migrate automatically via `normalize_world_state`.

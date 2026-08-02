@@ -7,7 +7,12 @@ __pycache__/
 .vscode/
 
 data/config.json
+data/config.backup.json
 data/world_state.json
+data/access_control.json
+data/announcement_history.json
+data/announcement_history.corrupted.json
+data/.started
 
 # Dev tooling caches
 .mypy_cache/
