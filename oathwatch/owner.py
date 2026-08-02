@@ -16,6 +16,7 @@ from typing import Literal
 
 import discord
 from discord import app_commands
+from dotenv import load_dotenv
 
 from . import (
     __version__,
@@ -32,8 +33,40 @@ from .world_state import WORLD_STATE
 
 logger = logging.getLogger(__name__)
 
-OWNER_USER_ID = 753862282949165086
-OWNER_GUILD_ID = 1533217936930508991
+# The owner's Discord IDs are configuration, never source: they come from the
+# environment (.env). load_dotenv is called here at import so these are correct
+# no matter when this module is first imported (bot.main()'s later call is
+# idempotent). A missing or malformed value fails fast at startup instead of
+# silently registering the owner group in the wrong guild.
+load_dotenv()
+
+OWNER_USER_ID_ENV = "OWNER_USER_ID"
+OWNER_GUILD_ID_ENV = "OWNER_GUILD_ID"
+
+
+def _required_id(env_name: str, label: str) -> int:
+    """Read a required Discord ID from the environment.
+
+    Raises ValueError with an actionable message when the variable is unset or
+    not a numeric Discord ID.
+    """
+    raw = (os.getenv(env_name) or "").strip()
+    if not raw:
+        raise ValueError(
+            f"Missing owner configuration: set {env_name} in .env "
+            f"(the {label} Discord ID)."
+        )
+    try:
+        return int(raw)
+    except ValueError:
+        raise ValueError(
+            f"Invalid {label} Discord ID in {env_name}: expected a numeric "
+            f"ID, got {raw!r}."
+        ) from None
+
+
+OWNER_USER_ID = _required_id(OWNER_USER_ID_ENV, "owner user")
+OWNER_GUILD_ID = _required_id(OWNER_GUILD_ID_ENV, "owner guild")
 OWNER_GUILD = discord.Object(id=OWNER_GUILD_ID)
 
 DENIED_MESSAGE = "You do not have permission to use this command."

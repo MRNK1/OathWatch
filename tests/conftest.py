@@ -8,6 +8,13 @@ import os
 
 import pytest
 
+# The owner Discord IDs now come from the environment. Set deterministic
+# test-only values here — before any test module imports ``oathwatch.owner`` —
+# so the suite is self-contained and never depends on (or leaks) real owner
+# configuration.
+os.environ["OWNER_USER_ID"] = "100100100100100100"
+os.environ["OWNER_GUILD_ID"] = "200200200200200200"
+
 from oathwatch import (
     access_control,
     announcements,

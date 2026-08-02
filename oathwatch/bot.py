@@ -38,8 +38,15 @@ logger = logging.getLogger(__name__)
 
 # Every variable required to run the bot, kept in one place so startup
 # validation and this list never drift apart. The reporting channel IDs
-# (BOT_STATUS/LOG/ERROR_CHANNEL_ID) are optional, not required.
-REQUIRED_ENV = ("DISCORD_TOKEN", "HYPIXEL_API_KEY")
+# (BOT_STATUS/LOG/ERROR_CHANNEL_ID) are optional, not required. The owner
+# Discord IDs come from the environment too (owner.py reads them first at
+# import, failing fast if they are missing or invalid).
+REQUIRED_ENV = (
+    "DISCORD_TOKEN",
+    "HYPIXEL_API_KEY",
+    "OWNER_USER_ID",
+    "OWNER_GUILD_ID",
+)
 
 intents = discord.Intents.default()
 

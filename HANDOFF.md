@@ -224,7 +224,7 @@ There are **20 application modules** below `oathwatch/`. For each: module purpos
   - `@tasks.loop(hours=1) async def mayor_update_loop()` + `mayor_update_loop.error` restart handler.
   - `get_missing_env()` / `validate_env()` / `_log_env_validation()` / `_load_saved_state()` / `main()`.
 - **Consumers:** every other part.
-- **Quirks:** The owner `owner_group` is registered at import time but **synced only to the owner guild**, never globally. The `.env` is loaded in `main()` via `load_dotenv()`.
+- **Quirks:** The owner `owner_group` is registered at import time but **synced only to the owner guild**, never globally. The `.env` is loaded in `main()` via `load_dotenv()` — and **also** at the top of `owner.py`, because `owner.py` is imported before `main()` runs and must read `OWNER_USER_ID`/`OWNER_GUILD_ID` at import (missing/invalid values raise a clear `ValueError`).
 
 ### 4.5 `oathwatch/hypixel_api.py`
 - **Purpose:** all Hypixel HTTP requests.
@@ -380,7 +380,7 @@ There are **20 application modules** below `oathwatch/`. For each: module purpos
 ### 4.21 `oathwatch/owner.py` — owner-only commands
 
 #### 4.21.1 Infrastructure
-- **Constants:** `OWNER_USER_ID = 753862282949165086`, `OWNER_FORM_ID = 1533217936930508991`, `OWNER_GUILD = discord.Object(id=OWNER_GUILD_ID)`, `DENIED_MESSAGE` (`"You do not have permission to use this command."`), `ANNOUNCEMENT_EXTRAS`.
+- **Constants:** `OWNER_USER_ID`, `OWNER_GUILD_ID`, and `OWNER_GUILD = discord.Object(id=OWNER_GUILD_ID)` are read from the environment at import — `OWNER_USER_ID_ENV`/`OWNER_GUILD_ID_ENV` (`.env`), via `_required_id(env_name, label)`, which raises a clear `ValueError` if a value is missing or not numeric so a misconfigured deployment fails fast. Also `DENIED_MESSAGE` (`"You do not have permission to use this command."`), `ANNOUNCEMENT_EXTRAS`.
 - **Groups:** `owner_group` (guild_ids=[OWNER_GUILD_ID]), `whitelist_group`, `blacklist_group`, `announcement_group` — all `parent=owner_group`, so they inherit the owner-guild scope.
 - **Security entry points:** `is_owner(interaction)` and `async _deny_non_owner(interaction) -> bool` — rejects anyone who is not the owner **and** not in the owner guild; logs + reports to the error channel, sends the ephemeral `DENIED_MESSAGE`, returns `True`. All owner command functions begin with `if await _deny_non_owner(...): return`.
 - `format_uptime(seconds) -> str` (e.g. `5s`, `1m`, `1h`, `2d 3h`).
@@ -773,7 +773,7 @@ Each decision below notes the choice, why, the alternatives weighed, and the tra
 
 ### 15.4 Guild-scoped owner commands
 - **Why:** `/owner` must never appear in a public server. `guild_ids` scoping + a separate owner-guild `sync` achieves it.
-- **Tradeoff:** hardcodes `OWNER_GUILD_ID` and `OWNER_USER_ID` as constants (single-owner assumption). See §16.
+- **Tradeoff:** `OWNER_GUILD_ID` and `OWNER_USER_ID` are read from the environment at import (single-owner assumption; no delegation). See §16.
 
 ### 15.5 A shared refresh pipeline (`refresh.py`) used by both the loop and `/owner refresh`
 - **Why:** the loop and manual refresh must never drift into different logic (a classic divergence source). One `RefreshResult` → one log line.
@@ -813,7 +813,7 @@ Each decision below notes the choice, why, the alternatives weighed, and the tra
 ## 16. Known Issues, Limitations & Intentional Choices
 
 ### 16.1 Intentional limitations
-- **Single owner, single owner-guild, hardcoded ids.** `OWNER_USER_ID`/`OWNER_GUILD_ID` are constants in `owner.py`. Multi-owner or owner-profile config is out of scope. **Impact:** to reassign owner, edit these constants, re-sync, and restart; access-control does not support delegation.
+- **Single owner, single owner-guild, ids from configuration.** `OWNER_USER_ID`/`OWNER_GUILD_ID` come from the environment (`OWNER_USER_ID`/`OWNER_GUILD_ID` in `.env`), read in `owner.py`. Multi-owner or owner-profile config is out of scope. **Impact:** to reassign owner, change the `.env` values, re-sync, and restart; access-control does not support delegation.
 - **Only two measures boards** (Mayor + Election). Bazaar, Event, etc. are planned (out of scope).
 - **Single global world state**, shared across guilds (correct for a global election; not per-guild/named state). 
 

@@ -18,8 +18,8 @@ from oathwatch.storage import save_config
 
 from .mocks import MockBot, MockChannel, MockGuild, MockInteraction
 
-OWNER_USER_ID = 753862282949165086
-OWNER_GUILD_ID = 1533217936930508991
+OWNER_USER_ID = 100100100100100100
+OWNER_GUILD_ID = 200200200200200200
 DENIED = "You do not have permission to use this command."
 
 

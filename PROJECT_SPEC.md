@@ -82,7 +82,7 @@ oathwatch/world_storage.py
 World state persistence.
 
 oathwatch/owner.py
-Owner-only administration. The /owner command group (botstatus, refresh, shutdown, health, stats, version, announce, whitelist, blacklist, announcement) is guild-scoped to the owner guild only (never global, never in public servers), only the owner user may execute it (ephemeral denial for everyone else), and every reply is ephemeral. Health/stats/version embeds draw from runtime.py; announce/announcement delegate to announcements.py; whitelist/blacklist state lives in access_control.py. Reuses reporting.py and refresh.py.
+Owner-only administration. The /owner command group (botstatus, refresh, shutdown, health, stats, version, announce, whitelist, blacklist, announcement) is guild-scoped to the owner guild only (never global, never in public servers), only the owner user may execute it (ephemeral denial for everyone else), and every reply is ephemeral. The owner's Discord user and guild IDs come from the environment (OWNER_USER_ID / OWNER_GUILD_ID in .env, read at import via a clear fail-fast validator — no IDs are hardcoded). Health/stats/version embeds draw from runtime.py; announce/announcement delegate to announcements.py; whitelist/blacklist state lives in access_control.py. Reuses reporting.py and refresh.py.
 
 oathwatch/runtime.py
 Central runtime metrics shared by health/stats/version and slow-refresh detection: process start time and uptime, refresh counter/average/longest (recorded via record_refresh), last-refresh result/error/timestamp, and version info (git commit, Python, discord.py, platform) plus process memory.

@@ -57,13 +57,13 @@ pip install -r requirements-dev.txt
 
 ## Configuration
 
-1. Copy `.env.example` to `.env` and fill in both values:
+1. Copy `.env.example` to `.env` and fill in the required values:
 
    ```bash
    cp .env.example .env
    ```
 
-2. Set your **Discord bot token** and **Hypixel API key** (see [Environment variables](#environment-variables)).
+2. Set your **Discord bot token**, **Hypixel API key**, and the **owner Discord IDs** (see [Environment variables](#environment-variables)).
 
 3. Start the bot:
 
@@ -83,11 +83,13 @@ The `data/` directory (config and world state) is created automatically on first
 | ------------------------- | -------- | -------------------------------------------------------------------------------------------- |
 | `DISCORD_TOKEN`           | ✅       | Discord bot token from [Discord Developer Portal](https://discord.com/developers).           |
 | `HYPIXEL_API_KEY`         | ✅       | Hypixel API key from [developer.hypixel.net](https://developer.hypixel.net) (`/api` in-game). |
+| `OWNER_USER_ID`           | ✅       | Owner's Discord user ID — who may run `/owner` commands.                                      |
+| `OWNER_GUILD_ID`          | ✅       | Owner guild ID — the only guild where `/owner` commands register.                             |
 | `BOT_STATUS_CHANNEL_ID`   | —        | Status channel: 🟢/🔄/🔁 startup + reconnect markers and 🔴 shutdown only.                   |
 | `BOT_LOG_CHANNEL_ID`      | —        | Log channel: one operational summary per refresh cycle, setup/config changes, version info.   |
 | `BOT_ERROR_CHANNEL_ID`    | —        | Error channel: failures with tracebacks in code blocks.                                       |
 
-Every variable is validated at startup with a per-variable ✅/⚠ report. The two required variables must be present or the bot refuses to launch with a clear message. The three channel IDs are optional — leave them blank (or unset) to disable that channel; a missing optional value logs a warning but does not block startup.
+Every variable is validated at startup with a per-variable ✅/⚠ report. The four required variables must be present or the bot refuses to launch with a clear message. The three channel IDs are optional — leave them blank (or unset) to disable that channel; a missing optional value logs a warning but does not block startup.
 
 ## Commands
 

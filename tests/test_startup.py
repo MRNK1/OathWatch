@@ -37,7 +37,12 @@ def test_validate_env_marks_present_required(monkeypatch):
     assert present["DISCORD_TOKEN"] is True
     assert present["HYPIXEL_API_KEY"] is True
     required = {name for name, required, _ in report if required}
-    assert required == {"DISCORD_TOKEN", "HYPIXEL_API_KEY"}
+    assert required == {
+        "DISCORD_TOKEN",
+        "HYPIXEL_API_KEY",
+        "OWNER_USER_ID",
+        "OWNER_GUILD_ID",
+    }
 
 
 def test_validate_env_includes_optional_reporting_channels(monkeypatch):
